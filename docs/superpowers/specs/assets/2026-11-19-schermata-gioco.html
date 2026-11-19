@@ -1,0 +1,149 @@
+<h2>Come deve muoversi il tracciato mentre canti?</h2>
+<p class="subtitle">Tre modi di mostrare le stesse note. In tutti e tre: le barre sono le note da cantare, il pallino giallo è la tua voce in questo momento, la riga di testo sta in basso. Clicca quello che ti convince di più.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a-scorrimento-orizzontale" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <svg viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+        <rect width="480" height="270" fill="#12141c"/>
+        <!-- avanzamento brano -->
+        <rect x="20" y="14" width="300" height="4" rx="2" fill="#2a2e3d"/>
+        <rect x="20" y="14" width="110" height="4" rx="2" fill="#5b8cff"/>
+        <!-- punteggio -->
+        <text x="460" y="26" text-anchor="end" font-family="sans-serif" font-size="18" font-weight="700" fill="#ffffff">12.450</text>
+        <text x="460" y="42" text-anchor="end" font-family="sans-serif" font-size="10" fill="#ffd166">serie ×4</text>
+        <!-- righe di altezza -->
+        <g stroke="#1f2331" stroke-width="1">
+          <line x1="0" y1="70" x2="480" y2="70"/><line x1="0" y1="95" x2="480" y2="95"/>
+          <line x1="0" y1="120" x2="480" y2="120"/><line x1="0" y1="145" x2="480" y2="145"/>
+          <line x1="0" y1="170" x2="480" y2="170"/><line x1="0" y1="195" x2="480" y2="195"/>
+        </g>
+        <text x="6" y="66" font-family="sans-serif" font-size="8" fill="#55607a">acuto</text>
+        <text x="6" y="206" font-family="sans-serif" font-size="8" fill="#55607a">grave</text>
+        <!-- note passate -->
+        <rect x="18" y="139" width="40" height="12" rx="6" fill="#3ddc97"/>
+        <rect x="64" y="114" width="26" height="12" rx="6" fill="#3ddc97"/>
+        <rect x="64" y="114" width="10" height="12" rx="6" fill="#3a4157"/>
+        <!-- nota in corso -->
+        <rect x="96" y="89" width="90" height="12" rx="6" fill="#2b3350" stroke="#5b8cff" stroke-width="1.5"/>
+        <rect x="96" y="89" width="44" height="12" rx="6" fill="#3ddc97"/>
+        <!-- note in arrivo -->
+        <rect x="200" y="114" width="36" height="12" rx="6" fill="#5b8cff"/>
+        <rect x="244" y="139" width="30" height="12" rx="6" fill="#5b8cff"/>
+        <rect x="282" y="164" width="70" height="12" rx="6" fill="#5b8cff"/>
+        <rect x="372" y="114" width="28" height="12" rx="6" fill="#5b8cff"/>
+        <rect x="408" y="76" width="60" height="12" rx="6" fill="#5b8cff"/>
+        <!-- linea "adesso" -->
+        <line x1="140" y1="55" x2="140" y2="210" stroke="#ffffff" stroke-width="2" opacity="0.8"/>
+        <!-- scia della voce -->
+        <polyline points="18,150 40,146 58,144 66,126 78,121 90,119 98,104 112,97 126,95 140,95" fill="none" stroke="#ffd166" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="140" cy="95" r="6" fill="#ffd166"/>
+        <text x="330" y="52" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#55607a">← le note arrivano da destra</text>
+        <!-- testo -->
+        <text x="240" y="240" text-anchor="middle" font-family="sans-serif" font-size="17" font-weight="600">
+          <tspan fill="#3ddc97">Canto piano </tspan><tspan fill="#ffffff">sot</tspan><tspan fill="#8a93ab">to la luna stasera</tspan>
+        </text>
+        <text x="240" y="258" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#55607a">e la notte mi risponde</text>
+      </svg>
+    </div>
+    <div class="card-body">
+      <h3>A · Scorrimento orizzontale</h3>
+      <p>Le note arrivano da destra verso una linea fissa. Acuto in alto, grave in basso. La tua voce lascia una scia gialla, così vedi subito se sei sopra o sotto la nota.</p>
+      <p><strong>Pro:</strong> "più acuto = più in alto" viene naturale; vedi le note in arrivo con anticipo; le note lunghe si leggono bene.<br><strong>Contro:</strong> somiglia meno a Guitar Hero.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b-autostrada-verticale" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <svg viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+        <rect width="480" height="270" fill="#12141c"/>
+        <text x="20" y="26" font-family="sans-serif" font-size="18" font-weight="700" fill="#ffffff">12.450</text>
+        <text x="20" y="42" font-family="sans-serif" font-size="10" fill="#ffd166">serie ×4</text>
+        <!-- autostrada in prospettiva -->
+        <polygon points="200,20 280,20 400,205 80,205" fill="#191d2a"/>
+        <g stroke="#262b3c" stroke-width="1">
+          <line x1="216" y1="20" x2="144" y2="205"/><line x1="232" y1="20" x2="208" y2="205"/>
+          <line x1="248" y1="20" x2="272" y2="205"/><line x1="264" y1="20" x2="336" y2="205"/>
+          <line x1="187" y1="40" x2="293" y2="40"/><line x1="165" y1="75" x2="315" y2="75"/>
+          <line x1="135" y1="120" x2="345" y2="120"/><line x1="103" y1="170" x2="377" y2="170"/>
+        </g>
+        <!-- note che scendono -->
+        <rect x="246" y="26" width="12" height="16" rx="4" fill="#5b8cff"/>
+        <rect x="222" y="50" width="15" height="30" rx="5" fill="#5b8cff"/>
+        <rect x="262" y="88" width="20" height="26" rx="6" fill="#5b8cff"/>
+        <rect x="170" y="122" width="24" height="40" rx="7" fill="#5b8cff"/>
+        <!-- nota in corso -->
+        <rect x="286" y="150" width="30" height="55" rx="8" fill="#2b3350" stroke="#5b8cff" stroke-width="1.5"/>
+        <rect x="286" y="182" width="30" height="23" rx="8" fill="#3ddc97"/>
+        <!-- linea di arrivo -->
+        <line x1="80" y1="205" x2="400" y2="205" stroke="#ffffff" stroke-width="2.5" opacity="0.85"/>
+        <circle cx="304" cy="205" r="7" fill="#ffd166"/>
+        <text x="86" y="220" font-family="sans-serif" font-size="8" fill="#55607a">grave</text>
+        <text x="394" y="220" text-anchor="end" font-family="sans-serif" font-size="8" fill="#55607a">acuto</text>
+        <text x="430" y="110" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#55607a">le note</text>
+        <text x="430" y="122" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#55607a">scendono ↓</text>
+        <text x="240" y="244" text-anchor="middle" font-family="sans-serif" font-size="17" font-weight="600">
+          <tspan fill="#3ddc97">Canto piano </tspan><tspan fill="#ffffff">sot</tspan><tspan fill="#8a93ab">to la luna stasera</tspan>
+        </text>
+        <text x="240" y="261" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#55607a">e la notte mi risponde</text>
+      </svg>
+    </div>
+    <div class="card-body">
+      <h3>B · Autostrada verticale</h3>
+      <p>Le note scendono verso di te su una pista in prospettiva, come in Guitar Hero. Grave a sinistra, acuto a destra. Il pallino della voce scorre lungo la linea di arrivo.</p>
+      <p><strong>Pro:</strong> è l'aspetto più "videogioco", il più vicino a quello che hai citato.<br><strong>Contro:</strong> "acuto = a destra" va imparato; non c'è la scia della voce, quindi è più difficile capire di quanto stai sbagliando.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c-frase-fissa" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <svg viewBox="0 0 480 270" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+        <rect width="480" height="270" fill="#12141c"/>
+        <rect x="20" y="14" width="300" height="4" rx="2" fill="#2a2e3d"/>
+        <rect x="20" y="14" width="110" height="4" rx="2" fill="#5b8cff"/>
+        <text x="460" y="26" text-anchor="end" font-family="sans-serif" font-size="18" font-weight="700" fill="#ffffff">12.450</text>
+        <text x="460" y="42" text-anchor="end" font-family="sans-serif" font-size="10" fill="#ffd166">serie ×4</text>
+        <g stroke="#1f2331" stroke-width="1">
+          <line x1="0" y1="70" x2="480" y2="70"/><line x1="0" y1="95" x2="480" y2="95"/>
+          <line x1="0" y1="120" x2="480" y2="120"/><line x1="0" y1="145" x2="480" y2="145"/>
+          <line x1="0" y1="170" x2="480" y2="170"/><line x1="0" y1="195" x2="480" y2="195"/>
+        </g>
+        <!-- cornice della frase -->
+        <rect x="24" y="58" width="432" height="150" rx="10" fill="none" stroke="#2a2e3d" stroke-width="1.5" stroke-dasharray="4 4"/>
+        <text x="240" y="52" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#55607a">una frase intera, ferma sullo schermo</text>
+        <!-- note già cantate -->
+        <rect x="40" y="139" width="54" height="12" rx="6" fill="#3ddc97"/>
+        <rect x="102" y="114" width="36" height="12" rx="6" fill="#3ddc97"/>
+        <!-- nota in corso -->
+        <rect x="146" y="89" width="104" height="12" rx="6" fill="#2b3350" stroke="#5b8cff" stroke-width="1.5"/>
+        <rect x="146" y="89" width="46" height="12" rx="6" fill="#3ddc97"/>
+        <!-- note da cantare -->
+        <rect x="262" y="114" width="46" height="12" rx="6" fill="#5b8cff"/>
+        <rect x="316" y="139" width="40" height="12" rx="6" fill="#5b8cff"/>
+        <rect x="364" y="164" width="76" height="12" rx="6" fill="#5b8cff"/>
+        <!-- cursore che avanza -->
+        <line x1="192" y1="60" x2="192" y2="206" stroke="#ffffff" stroke-width="2" opacity="0.8"/>
+        <polygon points="186,58 198,58 192,66" fill="#ffffff" opacity="0.8"/>
+        <polyline points="40,150 66,146 94,144 104,126 120,121 138,119 148,104 164,97 178,95 192,95" fill="none" stroke="#ffd166" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="192" cy="95" r="6" fill="#ffd166"/>
+        <text x="216" y="222" font-family="sans-serif" font-size="9" fill="#55607a">il cursore avanza →</text>
+        <text x="240" y="244" text-anchor="middle" font-family="sans-serif" font-size="17" font-weight="600">
+          <tspan fill="#3ddc97">Canto piano </tspan><tspan fill="#ffffff">sot</tspan><tspan fill="#8a93ab">to la luna stasera</tspan>
+        </text>
+        <text x="240" y="261" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#55607a">e la notte mi risponde</text>
+      </svg>
+    </div>
+    <div class="card-body">
+      <h3>C · Frase fissa</h3>
+      <p>Lo schermo mostra una frase alla volta, ferma. Un cursore la attraversa da sinistra a destra; a fine frase si passa alla successiva.</p>
+      <p><strong>Pro:</strong> è la più tranquilla da leggere, vedi tutta la melodia della frase prima di cantarla.<br><strong>Contro:</strong> niente sensazione di "note che ti vengono incontro"; il cambio frase è uno stacco.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section">
+  <p class="label">Il mio consiglio</p>
+  <p><strong>A.</strong> Con la voce l'errore tipico è essere un po' sopra o un po' sotto la nota: con l'altezza in verticale e la scia gialla lo vedi e ti correggi al volo. È anche quello in cui "stare sulla linea" si legge meglio, che è proprio il meccanismo dei punti che hai descritto.</p>
+</div>
