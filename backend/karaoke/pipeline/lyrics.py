@@ -1,7 +1,8 @@
 """Passo 5: il testo sincronizzato riga per riga.
 
 Prima si cerca su LRCLIB un testo già sincronizzato e scritto da persone;
-se non c'è, si trascrive la traccia voce con Whisper. Senza testo si gioca lo stesso.
+se non c'è, o se non combacia con la voce, si trascrive la traccia voce con
+Whisper. Senza testo si gioca lo stesso.
 """
 
 from __future__ import annotations
@@ -62,6 +63,31 @@ def lines_from_lrc(entries: list[tuple[float, str]], notes: list[Note],
         end = min(max(ends), limit) if ends else limit
         lines.append(LyricLine(start=start, end=max(end, start), text=text, words=None))
     return lines
+
+
+def lrc_mismatch(entries: list[tuple[float, str]], lines: list[LyricLine],
+                 notes: list[Note]) -> str | None:
+    """Perché questo testo non può essere quello di questa registrazione; None se regge.
+
+    Chi carica i testi su LRCLIB a volte copia i tempi di un'altra versione del
+    brano o li sbaglia: la durata coincide lo stesso, ma la voce racconta altro.
+    """
+    rushed = 0
+    for (start, text), (following, _) in zip(entries, entries[1:]):
+        letters = sum(1 for char in text if char.isalnum())
+        if letters > (following - start) * config.LYRICS_MAX_LETTERS_PER_S:
+            rushed += 1
+    if rushed > config.LYRICS_MAX_RUSHED_LINES:
+        return f"{rushed} righe più fitte di quanto si possa cantare"
+
+    margin = config.LYRICS_VOICE_MARGIN_S
+    total = sum(n.duration for n in notes)
+    wordless = sum(n.duration for n in notes
+                   if not any(line.start - margin <= n.start + n.duration / 2 <= line.end + margin
+                              for line in lines))
+    if total > 0 and wordless > total * config.LYRICS_MAX_WORDLESS_SHARE:
+        return f"il {wordless / total:.0%} del canto cade dove il testo tace"
+    return None
 
 
 # --- LRCLIB ------------------------------------------------------------------
@@ -138,13 +164,26 @@ def _split_words(words: list[Word], max_chars: int) -> list[list[Word]]:
     return _split_words(words[:cut], max_chars) + _split_words(words[cut:], max_chars)
 
 
+def _pull_in_first_word(words: list[Word]) -> list[Word]:
+    """Riporta accanto alle altre una prima parola rimasta molto prima del canto.
+
+    Whisper tende ad ancorare la prima parola all'inizio del segmento: se prima
+    del canto c'è uno stacco strumentale, la riga comparirebbe con secondi di anticipo.
+    """
+    if len(words) < 2 or words[1].start - words[0].end <= config.WHISPER_LEFT_BEHIND_GAP_S:
+        return words
+    first, following = words[0], words[1]
+    length = min(first.end - first.start, config.WHISPER_LEFT_BEHIND_WORD_S)
+    return [Word(following.start - length, following.start, first.text), *words[1:]]
+
+
 def lines_from_words(segments: list[list[Word]], max_chars: int = 48) -> list[LyricLine]:
     """Una riga per segmento; i segmenti troppo lunghi si spezzano tra due parole."""
     lines: list[LyricLine] = []
     for segment in segments:
         words = [Word(w.start, w.end, w.text.strip()) for w in segment if w.text.strip()]
         if words:
-            lines.extend(_line(part) for part in _split_words(words, max_chars))
+            lines.extend(_line(part) for part in _split_words(_pull_in_first_word(words), max_chars))
     return lines
 
 
@@ -235,8 +274,12 @@ def find_lyrics(meta: SongMeta, vocals: Path, notes: list[Note],
     if meta.artist and meta.title and meta.duration_s:
         synced = fetch(meta.artist, meta.title, meta.duration_s)
         if synced:
-            lines = lines_from_lrc(parse_lrc(synced), notes, meta.duration_s)
-            if lines:
+            entries = parse_lrc(synced)
+            lines = lines_from_lrc(entries, notes, meta.duration_s)
+            mismatch = lrc_mismatch(entries, lines, notes) if lines else None
+            if mismatch:
+                log.info("Testo di LRCLIB scartato (%s): trascrivo la voce.", mismatch)
+            elif lines:
                 return lines, "lrclib", None
     try:
         lines, language = transcribe_fn(vocals, meta.language if meta.language_user else None)

@@ -13,12 +13,20 @@ SEPARATOR_MODEL = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
 SEPARATOR_CANDIDATES = [SEPARATOR_MODEL, "vocals_mel_band_roformer.ckpt", "htdemucs_ft.yaml"]
 
 # Curva di altezza.
-PITCH_TRACKER = "swiftf0"
+PITCH_TRACKER = "fcpe"
 PITCH_CANDIDATES = ["swiftf0", "fcpe"]
 
 # Testo.
 WHISPER_MODEL = "large-v3"
 LYRICS_DURATION_TOLERANCE_S = 3.0
+# Quando il testo trovato in rete non è quello di questa registrazione (vedi lyrics.lrc_mismatch).
+LYRICS_MAX_LETTERS_PER_S = 30.0     # il rap più fitto della prova arriva a 20
+LYRICS_MAX_RUSHED_LINES = 1         # una svista si perdona
+LYRICS_VOICE_MARGIN_S = 0.75
+LYRICS_MAX_WORDLESS_SHARE = 0.15    # quota del canto che può cadere fuori dalle righe
+# Una prima parola trascritta così tanto prima della seconda è rimasta indietro (vedi lyrics._pull_in_first_word).
+WHISPER_LEFT_BEHIND_GAP_S = 2.5     # nella prova le pause vere arrivano a 2,1 s, quelle false partono da 2,8
+WHISPER_LEFT_BEHIND_WORD_S = 0.6
 
 # Limiti.
 MAX_DURATION_S = 900

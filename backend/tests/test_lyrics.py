@@ -92,6 +92,20 @@ def test_lines_from_words_prefers_the_longest_pause():
     assert (lines[0].end, lines[1].start) == (2, 5)
 
 
+def test_lines_from_words_pulls_in_a_first_word_left_behind():
+    # Whisper a volte ancora la prima parola all'inizio del segmento, molto prima del canto vero.
+    words = [Word(32.0, 32.8, "It"), Word(45.6, 46.4, "is"), Word(46.4, 46.5, "a"), Word(46.5, 47.1, "page")]
+    (line,) = lines_from_words([words])
+    assert line.text == "It is a page"
+    assert 44.5 <= line.start < 45.6 and line.words[0].end == 45.6
+
+
+def test_lines_from_words_keeps_a_real_pause_after_the_first_word():
+    words = [Word(118.8, 119.2, "Zwei,"), Word(121.3, 121.7, "hier"), Word(121.7, 122.6, "kommt")]
+    (line,) = lines_from_words([words])
+    assert line.start == 118.8 and line.words[0].end == 119.2
+
+
 def meta(**kw):
     return SongMeta(id="x", title="T", artist="A", duration_s=200.0, source_kind="file",
                     source_ref="f", separator_model="m", pitch_tracker="swiftf0", **kw)
@@ -101,6 +115,41 @@ def test_find_prefers_lrclib(tmp_path):
     lines, src, lang = find_lyrics(meta(), tmp_path / "v.flac", [], fetch=lambda *a, **k: "[00:01.00]ciao",
                                    transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
     assert src == "lrclib" and lines[0].text == "ciao" and lang is None
+
+
+def sung(start, end):
+    """Una nota al secondo, da `start` a `end`."""
+    return [Note(float(t), 0.8, 60) for t in range(start, end)]
+
+
+WHISPER_LINE = [LyricLine(10, 12, "trascritto", None)]
+
+
+def test_find_drops_lrclib_text_timed_on_another_version(tmp_path):
+    # Si canta da 10 s, ma il testo comincia a 40 s: i tempi sono quelli di un'altra versione.
+    lrc = "[00:40.00]Prima riga\n[00:50.00]Seconda riga\n[01:00.00]Terza riga\n[01:10.00]"
+    lines, src, _ = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 70), fetch=lambda *a, **k: lrc,
+                                transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
+    assert src == "whisper" and lines == WHISPER_LINE
+
+
+def test_find_drops_lrclib_text_with_lines_nobody_could_sing(tmp_path):
+    # Tre righe intere in mezzo secondo: chi ha sincronizzato il testo ha sbagliato.
+    lrc = ("[00:10.00]Prima riga del testo\n[00:20.00]Una riga lunga da cantare\n[00:20.20]Un'altra riga lunga\n"
+           "[00:20.40]E una terza riga lunga\n[00:20.60]Ultima riga\n[00:40.00]")
+    lines, src, _ = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 40), fetch=lambda *a, **k: lrc,
+                                transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
+    assert src == "whisper" and lines == WHISPER_LINE
+
+
+def test_find_keeps_lrclib_text_that_follows_the_voice(tmp_path):
+    # Un vocalizzo senza parole e una riga frettolosa non bastano a scartare un testo buono.
+    lrc = ("[00:10.00]Prima riga\n[00:20.00]Seconda riga\n[00:29.80]Una riga frettolosa\n[00:30.00]Terza riga\n"
+           "[00:40.00]\n[00:60.00]Quarta riga\n[01:10.00]")
+    notes = sung(10, 40) + sung(45, 50) + sung(60, 70)
+    _, src, _ = find_lyrics(meta(), tmp_path / "v.flac", notes, fetch=lambda *a, **k: lrc,
+                            transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
+    assert src == "lrclib"
 
 
 def test_find_falls_back_to_whisper_with_user_language(tmp_path):
