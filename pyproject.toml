@@ -1,0 +1,37 @@
+[project]
+name = "karaoke"
+version = "0.1.0"
+description = "Gioco di canto con tracciato generato automaticamente"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi", "uvicorn[standard]", "python-multipart", "httpx",
+  "yt-dlp[default]", "numpy", "scipy", "soundfile", "librosa",
+  "torch", "torchaudio",
+  "audio-separator[cpu]", "swift-f0[audio]", "torchfcpe", "faster-whisper",
+]
+
+[project.scripts]
+karaoke = "karaoke.__main__:main"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend/karaoke"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+markers = ["slow: usa modelli reali o la rete"]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+torchaudio = { index = "pytorch-cu126" }
