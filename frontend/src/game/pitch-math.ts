@@ -20,6 +20,14 @@ export function foldToOctave(voiceMidi: number, targetMidi: number): number {
   return voiceMidi - 12 * Math.round((voiceMidi - targetMidi) / 12);
 }
 
+const NOTE_NAMES = ["Do", "Do♯", "Re", "Re♯", "Mi", "Fa", "Fa♯", "Sol", "Sol♯", "La", "La♯", "Si"];
+
+/** Il nome della nota più vicina, per esempio "La4". */
+export function noteName(midi: number): string {
+  const nearest = Math.round(midi);
+  return `${NOTE_NAMES[((nearest % 12) + 12) % 12]}${Math.floor(nearest / 12) - 1}`;
+}
+
 /** L'altezza in semitoni MIDI, oppure null se la lettura non è una voce che canta. */
 export function gate(hz: number, clarity: number, rms: number): number | null {
   if (!Number.isFinite(hz) || hz < MIN_HZ || hz > MAX_HZ) return null;

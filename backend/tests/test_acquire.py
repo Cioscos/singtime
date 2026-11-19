@@ -112,3 +112,23 @@ def test_file_metadata_falls_back_to_the_uploaded_name(tmp_path):
     sf.write(src, np.zeros(4410), 44100)
     assert file_metadata(src) == ("", "upload")
     assert file_metadata(src, original_name="Città è già (live).wav") == ("", "Città è già (live)")
+
+
+def test_error_text_survives_carriage_returns():
+    # yt-dlp scrive "ERROR: \r[download] Got error: …": il ritorno a capo non deve mangiarsi il messaggio.
+    def fake(url):
+        raise RuntimeError("ERROR: \r[download] Got error: HTTPSConnectionPool(host='x', port=443): Read timed out.")
+    with pytest.raises(AcquireError) as caught:
+        probe_url("https://youtu.be/DZHs-SRJbzU", extract=fake)
+    assert "Read timed out" in str(caught.value)
+
+
+def test_download_options_avoid_youtube_throttling(tmp_path):
+    # Senza blocchi HTTP YouTube rallenta alcuni video fino al timeout (visto su xFYQQPAOz7Y).
+    from karaoke.pipeline.acquire import download_options
+
+    options = download_options(tmp_path)
+    assert options["http_chunk_size"] == 1024 * 1024
+    assert options["noplaylist"] is True and options["format"] == "bestaudio/best"
+    assert options["socket_timeout"] <= 30 and options["retries"] >= 3
+    assert options["outtmpl"].startswith(str(tmp_path))

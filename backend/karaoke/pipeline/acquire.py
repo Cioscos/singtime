@@ -129,11 +129,21 @@ def probe_url(url: str, extract: Callable[[str], dict[str, Any]] = _extract_info
 
 
 def _short(exc: Exception) -> str:
-    text = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
-    # yt-dlp premette "ERROR: [youtube] <id>: " al messaggio vero.
-    text = re.sub(r"^ERROR:\s*", "", text)
-    text = re.sub(r"^\[[^\]]+\]\s*\S+:\s*", "", text)
-    return text.rstrip(".")[:200]
+    # yt-dlp premette "ERROR: [youtube] <id>: " (o "ERROR: \r[download] …") al messaggio vero.
+    text = re.sub(r"^ERROR:\s*", "", str(exc).strip())
+    text = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    text = re.sub(r"^\[[^\]]+\]\s*(?:\S+:\s*)?", "", text)
+    return (text.rstrip(".") or type(exc).__name__)[:200]
+
+
+def download_options(dest_dir: Path) -> dict[str, Any]:
+    """Opzioni di yt-dlp per scaricare solo l'audio.
+
+    Il download a blocchi evita il rallentamento che YouTube applica ad alcuni
+    video quando si chiede il file in un colpo solo (fino al timeout).
+    """
+    return _ydl_options(format="bestaudio/best", outtmpl=str(dest_dir / "download.%(ext)s"),
+                        http_chunk_size=1024 * 1024, socket_timeout=20, retries=5)
 
 
 def download_audio(url: str, dest_dir: Path) -> Path:
@@ -143,7 +153,7 @@ def download_audio(url: str, dest_dir: Path) -> Path:
     dest_dir.mkdir(parents=True, exist_ok=True)
     video_id = youtube_id(url)
     target = watch_url(video_id) if video_id else url
-    options = _ydl_options(format="bestaudio/best", outtmpl=str(dest_dir / "download.%(ext)s"))
+    options = download_options(dest_dir)
     try:
         with YoutubeDL(options) as ydl:
             info = ydl.extract_info(target, download=True)
