@@ -1,5 +1,6 @@
 <script lang="ts">
   import { parseHash, type Route } from "./lib/router";
+  import Calibration from "./screens/Calibration.svelte";
   import Library from "./screens/Library.svelte";
   import Settings from "./screens/Settings.svelte";
   import Verify from "./screens/Verify.svelte";
@@ -15,6 +16,8 @@
 
 {#if route.name === "library"}
   <Library />
+{:else if route.name === "calibration"}
+  <Calibration />
 {:else if route.name === "settings"}
   <Settings />
 {:else if route.name === "verify"}
