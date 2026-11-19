@@ -8,6 +8,7 @@
   import { drawFrame } from "../game/render";
   import { ScoreKeeper } from "../game/scoring";
   import { getLyrics, getNotes, getSettings, getSong, putSettings } from "../lib/api";
+  import { saveLastResult } from "../lib/last-result";
   import { navigate } from "../lib/router";
   import { DIFFICULTY_LABEL, type LyricLine, type Note, type Settings, type Song } from "../lib/types";
 
@@ -182,7 +183,7 @@
   function finish() {
     if (!settings) return;
     keeper.finish();
-    sessionStorage.setItem("lastResult", JSON.stringify({ songId: id, difficulty: settings.difficulty, ...keeper.result() }));
+    saveLastResult(sessionStorage, { songId: id, difficulty: settings.difficulty, ...keeper.result() });
     navigate({ name: "result", id });
   }
 

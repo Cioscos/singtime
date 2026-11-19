@@ -3,6 +3,7 @@
   import Calibration from "./screens/Calibration.svelte";
   import Game from "./screens/Game.svelte";
   import Library from "./screens/Library.svelte";
+  import Result from "./screens/Result.svelte";
   import Settings from "./screens/Settings.svelte";
   import Verify from "./screens/Verify.svelte";
 
@@ -19,6 +20,8 @@
   <Library />
 {:else if route.name === "game"}
   {#key route.id}<Game id={route.id} />{/key}
+{:else if route.name === "result"}
+  {#key route.id}<Result id={route.id} />{/key}
 {:else if route.name === "calibration"}
   <Calibration />
 {:else if route.name === "settings"}
