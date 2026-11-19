@@ -64,9 +64,10 @@ def test_probe_rejects_live():
 
 def test_probe_wraps_download_errors():
     def fake(url):
-        raise RuntimeError("Video unavailable")
-    with pytest.raises(AcquireError, match="non disponibile"):
+        raise RuntimeError("ERROR: [youtube] DZHs-SRJbzU: Video unavailable")
+    with pytest.raises(AcquireError, match="non disponibile") as caught:
         probe_url("https://youtu.be/DZHs-SRJbzU", extract=fake)
+    assert str(caught.value) == "Video non disponibile (Video unavailable)."   # senza i prefissi tecnici di yt-dlp
 
 
 def test_probe_rejects_non_youtube():

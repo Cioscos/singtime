@@ -130,7 +130,10 @@ def probe_url(url: str, extract: Callable[[str], dict[str, Any]] = _extract_info
 
 def _short(exc: Exception) -> str:
     text = str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
-    return text[:200]
+    # yt-dlp premette "ERROR: [youtube] <id>: " al messaggio vero.
+    text = re.sub(r"^ERROR:\s*", "", text)
+    text = re.sub(r"^\[[^\]]+\]\s*\S+:\s*", "", text)
+    return text.rstrip(".")[:200]
 
 
 def download_audio(url: str, dest_dir: Path) -> Path:
