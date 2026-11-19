@@ -123,3 +123,15 @@ def test_ids_used_by_the_app_are_accepted(tmp_path):
     for good in ("yt-DZHs-SRJbzU", "yt-a_b-1--mel-band", "file-0123456789ab"):
         lib.create(make_meta(good))
         assert lib.exists(good)
+
+
+def test_old_meta_without_lyrics_choice_loads_as_auto(tmp_path):
+    lib = Library(tmp_path)
+    lib.create(make_meta())
+    path = tmp_path / "yt-abc" / "meta.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.pop("lyrics_choice", None)
+    data.pop("lyrics_note", None)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    meta = lib.get("yt-abc")
+    assert (meta.lyrics_choice, meta.lyrics_note) == ("auto", None)

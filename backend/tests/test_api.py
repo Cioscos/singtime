@@ -285,3 +285,14 @@ def test_settings_are_written_atomically(ctx, monkeypatch):
     with pytest.raises(OSError):
         c.put("/api/settings", json={**saved, "latency_ms": 999})
     assert c.get("/api/settings").json()["latency_ms"] == 80
+
+
+def test_patch_lyrics_choice(ctx):
+    c, lib, jobs = ctx
+    add_song(c, jobs)
+    assert c.get("/api/songs/yt-abc").json()["lyrics_choice"] == "auto"
+    r = c.patch("/api/songs/yt-abc", json={"lyrics_choice": "whisper"})
+    assert r.status_code == 200 and r.json()["lyrics_choice"] == "whisper"
+    assert c.patch("/api/songs/yt-abc", json={"lyrics_choice": "boh"}).status_code == 422
+    assert c.patch("/api/songs/yt-abc", json={"lyrics_choice": None, "title": "Altro"}).json()["lyrics_choice"] == "whisper"
+    assert lib.get("yt-abc").lyrics_choice == "whisper"

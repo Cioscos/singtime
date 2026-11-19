@@ -22,7 +22,7 @@ from .library import (
     INSTRUMENTAL, LYRICS, NOTES, NOTES_SWIFTF0, PITCH, VOCALS, Library, SongNotFound,
     lines_to_dict, notes_to_dict,
 )
-from .models import STAGES, SongMeta
+from .models import STAGES, LyricsChoice, SongMeta
 from .pipeline import acquire, separate
 from .pipeline.notes import NoteParams, load_note_params, save_note_params, segment_notes
 
@@ -51,6 +51,7 @@ class SongPatch(BaseModel):
     artist: str | None = None
     language: str | None = None
     lyrics_offset_s: float | None = None
+    lyrics_choice: LyricsChoice | None = None
 
 
 class RetryBody(BaseModel):
@@ -221,7 +222,7 @@ def create_app(library: Library, jobs: JobQueue,
             if changes["language"] is None and not library.get(song_id).language_user:
                 # Era già automatica: quella rilevata resta dov'è.
                 del changes["language"], changes["language_user"]
-        for name in ("title", "artist", "lyrics_offset_s"):
+        for name in ("title", "artist", "lyrics_offset_s", "lyrics_choice"):
             if name in changes and changes[name] is None:
                 del changes[name]
         return song_out(library.update(song_id, **changes))

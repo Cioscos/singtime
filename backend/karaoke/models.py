@@ -12,6 +12,7 @@ STAGES = ("acquire", "separate", "pitch", "notes", "lyrics")
 PLAYABLE_STAGES = ("acquire", "separate", "pitch", "notes")
 
 StageStatus = Literal["pending", "running", "done", "error"]
+LyricsChoice = Literal["auto", "lrclib", "whisper", "none"]
 
 
 @dataclass
@@ -42,6 +43,10 @@ class SongMeta:
     language: str | None = None
     language_user: bool = False
     lyrics_source: Literal["lrclib", "whisper", "none"] | None = None
+    # Da dove chi gioca vuole il testo; "auto" lascia decidere al confronto con la voce.
+    lyrics_choice: LyricsChoice = "auto"
+    # Che cosa c'è da sapere sull'ultima ricerca del testo (per esempio perché LRCLIB è stato scartato).
+    lyrics_note: str | None = None
     lyrics_offset_s: float = 0.0
     created_at: str = field(default_factory=_now)
     stages: dict[str, StageState] = field(default_factory=_fresh_stages)

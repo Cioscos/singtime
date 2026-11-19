@@ -78,10 +78,10 @@ def stage_lyrics(library: Library, song_id: str) -> None:
         detail(TRANSCRIBE_NOTICE)
         return lyrics.transcribe(vocals, language, on_detail=detail)
 
-    lines, source, language = lyrics.find_lyrics(
+    lines, source, language, note = lyrics.find_lyrics(
         meta, library.path(song_id, VOCALS), library.read_notes(song_id), transcribe_fn=transcribing)
     library.write_lyrics(song_id, lines)
-    changes: dict[str, object] = {"lyrics_source": source}
+    changes: dict[str, object] = {"lyrics_source": source, "lyrics_note": note}
     # Si rilegge: la lingua può essere stata scelta a mano mentre Whisper lavorava.
     if language and not library.get(song_id).language_user:
         changes["language"] = language

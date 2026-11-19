@@ -98,7 +98,7 @@ def test_language_chosen_during_the_transcription_wins(tmp_path, monkeypatch):
 
     def slow_find(meta, vocals, notes, transcribe_fn):
         lib.update("s", language="de", language_user=True)       # scelta a mano mentre Whisper lavora
-        return [], "none", "en"
+        return [], "none", "en", None
 
     monkeypatch.setattr(lyrics, "find_lyrics", slow_find)
     DEFAULT_STAGES["lyrics"](lib, "s")
@@ -137,6 +137,19 @@ def test_transcription_reports_the_model_download(tmp_path, monkeypatch):
 
     monkeypatch.setattr(lyrics, "transcribe", fake_transcribe)
     monkeypatch.setattr(lyrics, "find_lyrics",
-                        lambda meta, vocals, notes, transcribe_fn: ([], "none", transcribe_fn(vocals, None)[1]))
+                        lambda meta, vocals, notes, transcribe_fn: ([], "none", transcribe_fn(vocals, None)[1], None))
     DEFAULT_STAGES["lyrics"](lib, "s")
     assert seen == ["Scarico il modello di trascrizione: 40%"]
+
+
+def test_the_lyrics_note_is_saved_and_cleared(tmp_path, monkeypatch):
+    from karaoke.pipeline import lyrics
+
+    lib = lib_with_song(tmp_path)
+    lib.write_notes("s", [])
+    answers = iter([([], "none", None, "LRCLIB non ha questo brano"), ([], "none", None, None)])
+    monkeypatch.setattr(lyrics, "find_lyrics", lambda meta, vocals, notes, transcribe_fn: next(answers))
+    DEFAULT_STAGES["lyrics"](lib, "s")
+    assert lib.get("s").lyrics_note == "LRCLIB non ha questo brano"
+    DEFAULT_STAGES["lyrics"](lib, "s")
+    assert lib.get("s").lyrics_note is None

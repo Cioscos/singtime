@@ -112,7 +112,7 @@ def meta(**kw):
 
 
 def test_find_prefers_lrclib(tmp_path):
-    lines, src, lang = find_lyrics(meta(), tmp_path / "v.flac", [], fetch=lambda *a, **k: "[00:01.00]ciao",
+    lines, src, lang, note = find_lyrics(meta(), tmp_path / "v.flac", [], fetch=lambda *a, **k: "[00:01.00]ciao",
                                    transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
     assert src == "lrclib" and lines[0].text == "ciao" and lang is None
 
@@ -128,7 +128,7 @@ WHISPER_LINE = [LyricLine(10, 12, "trascritto", None)]
 def test_find_drops_lrclib_text_timed_on_another_version(tmp_path):
     # Si canta da 10 s, ma il testo comincia a 40 s: i tempi sono quelli di un'altra versione.
     lrc = "[00:40.00]Prima riga\n[00:50.00]Seconda riga\n[01:00.00]Terza riga\n[01:10.00]"
-    lines, src, _ = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 70), fetch=lambda *a, **k: lrc,
+    lines, src, _, note = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 70), fetch=lambda *a, **k: lrc,
                                 transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
     assert src == "whisper" and lines == WHISPER_LINE
 
@@ -137,7 +137,7 @@ def test_find_drops_lrclib_text_with_lines_nobody_could_sing(tmp_path):
     # Tre righe intere in mezzo secondo: chi ha sincronizzato il testo ha sbagliato.
     lrc = ("[00:10.00]Prima riga del testo\n[00:20.00]Una riga lunga da cantare\n[00:20.20]Un'altra riga lunga\n"
            "[00:20.40]E una terza riga lunga\n[00:20.60]Ultima riga\n[00:40.00]")
-    lines, src, _ = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 40), fetch=lambda *a, **k: lrc,
+    lines, src, _, note = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 40), fetch=lambda *a, **k: lrc,
                                 transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
     assert src == "whisper" and lines == WHISPER_LINE
 
@@ -147,7 +147,7 @@ def test_find_keeps_lrclib_text_that_follows_the_voice(tmp_path):
     lrc = ("[00:10.00]Prima riga\n[00:20.00]Seconda riga\n[00:29.80]Una riga frettolosa\n[00:30.00]Terza riga\n"
            "[00:40.00]\n[00:60.00]Quarta riga\n[01:10.00]")
     notes = sung(10, 40) + sung(45, 50) + sung(60, 70)
-    _, src, _ = find_lyrics(meta(), tmp_path / "v.flac", notes, fetch=lambda *a, **k: lrc,
+    _, src, _, note = find_lyrics(meta(), tmp_path / "v.flac", notes, fetch=lambda *a, **k: lrc,
                             transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
     assert src == "lrclib"
 
@@ -158,7 +158,7 @@ def test_find_falls_back_to_whisper_with_user_language(tmp_path):
     def fake(vocals, language):
         seen["lang"] = language
         return [LyricLine(1, 2, "hello", None)], "en"
-    lines, src, lang = find_lyrics(meta(language="it", language_user=True), tmp_path / "v.flac", [],
+    lines, src, lang, note = find_lyrics(meta(language="it", language_user=True), tmp_path / "v.flac", [],
                                    fetch=lambda *a, **k: None, transcribe_fn=fake)
     assert (src, lang, seen["lang"]) == ("whisper", "en", "it")
 
@@ -169,14 +169,14 @@ def test_find_auto_language_when_not_set_by_user(tmp_path):
     def fake(vocals, language):
         seen["lang"] = language
         return [], "en"
-    lines, src, _ = find_lyrics(meta(language="en"), tmp_path / "v.flac", [], fetch=lambda *a, **k: None, transcribe_fn=fake)
+    lines, src, _, note = find_lyrics(meta(language="en"), tmp_path / "v.flac", [], fetch=lambda *a, **k: None, transcribe_fn=fake)
     assert seen["lang"] is None and src == "none" and lines == []
 
 
 def test_find_without_artist_skips_lrclib(tmp_path):
     m = meta()
     m.artist = ""
-    _, src, _ = find_lyrics(m, tmp_path / "v.flac", [], fetch=lambda *a, **k: pytest.fail("no"),
+    _, src, _, note = find_lyrics(m, tmp_path / "v.flac", [], fetch=lambda *a, **k: pytest.fail("no"),
                             transcribe_fn=lambda *a: ([LyricLine(1, 2, "x", None)], "en"))
     assert src == "whisper"
 
@@ -231,3 +231,53 @@ def test_transcribe_decodes_the_audio_itself(tmp_path, monkeypatch):
     monkeypatch.setattr(lyrics, "_load_whisper", lambda *a: FakeModel())
     lines, language = lyrics.transcribe(tmp_path / "v.flac", "it")
     assert lines[0].text == "ciao" and language == "it"
+
+
+# --- la fonte scelta da chi gioca ---------------------------------------------
+
+LATE_LRC = "[00:40.00]Prima riga\n[00:50.00]Seconda riga\n[01:00.00]Terza riga\n[01:10.00]"
+
+
+def test_choice_lrclib_keeps_text_the_voice_check_would_drop(tmp_path):
+    lines, src, _, note = find_lyrics(meta(lyrics_choice="lrclib"), tmp_path / "v.flac", sung(10, 70),
+                                      fetch=lambda *a, **k: LATE_LRC,
+                                      transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
+    assert src == "lrclib" and lines[0].start == 40.0 and note is None
+
+
+@pytest.mark.parametrize("artist", ["A", ""])
+def test_choice_lrclib_without_a_match_leaves_no_text_and_says_why(tmp_path, artist):
+    m = meta(lyrics_choice="lrclib")
+    m.artist = artist
+    lines, src, lang, note = find_lyrics(m, tmp_path / "v.flac", sung(10, 70), fetch=lambda *a, **k: None,
+                                         transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
+    assert (lines, src, lang) == ([], "none", None) and "LRCLIB" in note
+
+
+def test_choice_whisper_skips_lrclib(tmp_path):
+    lines, src, lang, note = find_lyrics(meta(lyrics_choice="whisper"), tmp_path / "v.flac", sung(10, 70),
+                                         fetch=lambda *a, **k: pytest.fail("non deve cercare su LRCLIB"),
+                                         transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
+    assert (lines, src, lang, note) == (WHISPER_LINE, "whisper", "en", None)
+
+
+def test_choice_none_removes_the_text(tmp_path):
+    found = find_lyrics(meta(lyrics_choice="none"), tmp_path / "v.flac", sung(10, 70),
+                        fetch=lambda *a, **k: pytest.fail("non deve cercare su LRCLIB"),
+                        transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
+    assert found == ([], "none", None, None)
+
+
+def test_auto_says_why_lrclib_was_dropped(tmp_path):
+    _, src, _, note = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 70), fetch=lambda *a, **k: LATE_LRC,
+                                  transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
+    assert src == "whisper" and "LRCLIB" in note and "canto" in note
+
+
+def test_auto_has_nothing_to_explain_when_lrclib_is_fine_or_absent(tmp_path):
+    *_, note = find_lyrics(meta(), tmp_path / "v.flac", [], fetch=lambda *a, **k: "[00:01.00]ciao",
+                           transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
+    assert note is None
+    *_, note = find_lyrics(meta(), tmp_path / "v.flac", [], fetch=lambda *a, **k: None,
+                           transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
+    assert note is None

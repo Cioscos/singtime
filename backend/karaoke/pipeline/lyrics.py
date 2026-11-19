@@ -265,25 +265,41 @@ def transcribe(vocals: Path, language: str | None,
 def find_lyrics(meta: SongMeta, vocals: Path, notes: list[Note],
                 fetch: Callable[..., str | None] = fetch_lrclib,
                 transcribe_fn: Callable[[Path, str | None], tuple[list[LyricLine], str | None]] = transcribe,
-                ) -> tuple[list[LyricLine], LyricsSource, str | None]:
-    """(righe, origine, lingua rilevata). Non fallisce mai per testo assente.
+                ) -> tuple[list[LyricLine], LyricsSource, str | None, str | None]:
+    """(righe, origine, lingua rilevata, nota per chi guarda). Non fallisce mai per testo assente.
 
-    Se invece la trascrizione si rompe solleva `LyricsError`: il brano si gioca
+    La fonte la decide `meta.lyrics_choice`; con "auto" vale LRCLIB se combacia
+    con la voce, altrimenti la trascrizione. La nota spiega un esito che da
+    solo non si capirebbe (LRCLIB scartato, oppure voluto ma senza il brano).
+
+    Se la trascrizione si rompe solleva `LyricsError`: il brano si gioca
     comunque, ma il motivo deve arrivare a chi guarda, non restare in un log.
     """
-    if meta.artist and meta.title and meta.duration_s:
-        synced = fetch(meta.artist, meta.title, meta.duration_s)
-        if synced:
-            entries = parse_lrc(synced)
-            lines = lines_from_lrc(entries, notes, meta.duration_s)
-            mismatch = lrc_mismatch(entries, lines, notes) if lines else None
-            if mismatch:
-                log.info("Testo di LRCLIB scartato (%s): trascrivo la voce.", mismatch)
-            elif lines:
-                return lines, "lrclib", None
+    choice = meta.lyrics_choice
+    if choice == "none":
+        return [], "none", None, None
+
+    note = None
+    if choice in ("auto", "lrclib"):
+        searchable = bool(meta.artist and meta.title and meta.duration_s)
+        synced = fetch(meta.artist, meta.title, meta.duration_s) if searchable else None
+        entries = parse_lrc(synced) if synced else []
+        lines = lines_from_lrc(entries, notes, meta.duration_s or 0.0)
+        # Il confronto con la voce serve a scegliere al posto di chi gioca: se ha scelto lui, non si fa.
+        mismatch = lrc_mismatch(entries, lines, notes) if lines and choice == "auto" else None
+        if lines and not mismatch:
+            return lines, "lrclib", None, None
+        if choice == "lrclib":
+            note = ("LRCLIB non ha un testo sincronizzato per questa versione del brano" if searchable
+                    else "Per cercare su LRCLIB servono artista e titolo")
+            return [], "none", None, note
+        if mismatch:
+            log.info("Testo di LRCLIB scartato (%s): trascrivo la voce.", mismatch)
+            note = f"Il testo di LRCLIB non combacia con la voce ({mismatch}): ho trascritto la voce"
+
     try:
         lines, language = transcribe_fn(vocals, meta.language if meta.language_user else None)
     except Exception as exc:
         reason = next((line.strip() for line in str(exc).splitlines() if line.strip()), type(exc).__name__)
         raise LyricsError(f"Trascrizione non riuscita ({reason[:200].rstrip('.')})") from exc
-    return (lines, "whisper", language) if lines else ([], "none", language)
+    return (lines, "whisper", language, note) if lines else ([], "none", language, note)
