@@ -95,3 +95,14 @@ def test_record_score_keeps_best(tmp_path):
     assert lib.read_scores("yt-abc")["normal"]["score"] == 100
     lib.record_score("yt-abc", "normal", 300, 0.9, 5)
     assert lib.read_scores("yt-abc")["normal"]["stars"] == 5
+
+
+def test_update_changes_only_the_given_fields(tmp_path):
+    lib = Library(tmp_path)
+    lib.create(make_meta())
+    lib.set_stage("yt-abc", "acquire", "done")
+    got = lib.update("yt-abc", title="Nuovo", lyrics_offset_s=-0.4)
+    assert (got.title, got.artist, got.lyrics_offset_s) == ("Nuovo", "A", -0.4)
+    assert lib.get("yt-abc").stages["acquire"].status == "done"
+    with pytest.raises(AttributeError):
+        lib.update("yt-abc", campo_inesistente=1)

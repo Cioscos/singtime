@@ -90,6 +90,17 @@ class Library:
                 raise SongNotFound(meta.id)
             _write_json(self.path(meta.id, META), meta.to_dict())
 
+    def update(self, song_id: str, **changes: Any) -> SongMeta:
+        """Legge, modifica e salva in un solo passo: nessuno può infilarsi in mezzo."""
+        with self._lock:
+            meta = self.get(song_id)
+            for name, value in changes.items():
+                if not hasattr(meta, name):
+                    raise AttributeError(name)
+                setattr(meta, name, value)
+            self.save(meta)
+            return meta
+
     def list(self) -> list[SongMeta]:
         with self._lock:
             if not self.root.is_dir():
