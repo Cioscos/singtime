@@ -1,6 +1,7 @@
 <script lang="ts">
   import { parseHash, type Route } from "./lib/router";
   import Calibration from "./screens/Calibration.svelte";
+  import EditSong from "./screens/EditSong.svelte";
   import Game from "./screens/Game.svelte";
   import Library from "./screens/Library.svelte";
   import Result from "./screens/Result.svelte";
@@ -20,6 +21,8 @@
   <Library />
 {:else if route.name === "game"}
   {#key route.id}<Game id={route.id} />{/key}
+{:else if route.name === "edit"}
+  {#key route.id}<EditSong id={route.id} />{/key}
 {:else if route.name === "result"}
   {#key route.id}<Result id={route.id} />{/key}
 {:else if route.name === "calibration"}
@@ -28,9 +31,4 @@
   <Settings />
 {:else if route.name === "verify"}
   {#key route.id}<Verify id={route.id} />{/key}
-{:else}
-  <main class="page">
-    <p class="muted">Questa schermata non è ancora disponibile.</p>
-    <a href="#/library">Torna alla libreria</a>
-  </main>
 {/if}
