@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from . import config
 from .jobs import JobQueue
 from .library import (
-    INSTRUMENTAL, LYRICS, META, NOTES, PITCH, VOCALS, Library, SongNotFound,
+    INSTRUMENTAL, LYRICS, NOTES, NOTES_SWIFTF0, PITCH, VOCALS, Library, SongNotFound,
     lines_to_dict, notes_to_dict,
 )
 from .models import STAGES, SongMeta
@@ -231,6 +231,11 @@ def create_app(library: Library, jobs: JobQueue,
     def get_notes(song_id: str) -> FileResponse:
         return json_file(song_id, NOTES)
 
+    @app.get("/api/songs/{song_id}/notes-swiftf0")
+    def get_swiftf0_notes(song_id: str) -> FileResponse:
+        # Esiste solo per i brani passati dalla prova dei modelli: serve da confronto.
+        return json_file(song_id, NOTES_SWIFTF0)
+
     @app.get("/api/songs/{song_id}/pitch")
     def get_pitch(song_id: str) -> FileResponse:
         return json_file(song_id, PITCH)
@@ -262,6 +267,18 @@ def create_app(library: Library, jobs: JobQueue,
             raise HTTPException(404, "Non ancora disponibile")
         params = NoteParams.from_dict(body.model_dump())
         return notes_to_dict(segment_notes(library.read_pitch(song_id), params))
+
+    @app.post("/api/songs/{song_id}/notes/apply")
+    def apply_notes(song_id: str, body: NoteParamsBody) -> dict[str, Any]:
+        # Rigenera solo le barre di questo brano: il testo (magari corretto a mano) resta com'è.
+        library.get(song_id)
+        if not library.path(song_id, PITCH).is_file():
+            raise HTTPException(404, "Non ancora disponibile")
+        notes = segment_notes(library.read_pitch(song_id), NoteParams.from_dict(body.model_dump()))
+        if len(notes) < config.MIN_NOTES:
+            raise HTTPException(400, "Con queste soglie non resta quasi nessuna nota.")
+        library.write_notes(song_id, notes)
+        return notes_to_dict(notes)
 
     @app.get("/api/songs/{song_id}/audio/{which}")
     def get_audio(song_id: str, which: str) -> FileResponse:

@@ -189,3 +189,28 @@ def test_system_reports_gpu(ctx, monkeypatch):
     c, _, _ = ctx
     monkeypatch.setattr(api.separate, "device_info", lambda: (False, None))
     assert c.get("/api/system").json() == {"gpu": False, "gpu_name": None}
+
+
+def test_swiftf0_comparison_notes(ctx):
+    from karaoke.library import NOTES_SWIFTF0
+    from karaoke.models import Note
+
+    c, lib, jobs = ctx
+    add_song(c, jobs)
+    assert c.get("/api/songs/yt-abc/notes-swiftf0").status_code == 404
+    lib.write_notes("yt-abc", [Note(1.0, 0.5, 60.0)], NOTES_SWIFTF0)
+    assert c.get("/api/songs/yt-abc/notes-swiftf0").json()["notes"] == [{"start": 1.0, "duration": 0.5, "pitch": 60.0}]
+
+
+def test_apply_notes_rewrites_only_the_notes(ctx):
+    c, lib, jobs = ctx
+    add_song(c, jobs)
+    t = np.arange(0, 12, 0.01)
+    lib.write_pitch("yt-abc", PitchCurve(t, np.where((t % 2) < 0.3, 60.0 + (t // 2), np.nan)))   # sei note da 0,3 s
+    lib.write_notes("yt-abc", [])
+    lib.write_lyrics("yt-abc", [LyricLine(1, 2, "corretto a mano", None)])
+    r = c.post("/api/songs/yt-abc/notes/apply", json=NoteParams().to_dict())
+    assert r.status_code == 200 and len(r.json()["notes"]) == 6 and len(lib.read_notes("yt-abc")) == 6
+    assert lib.read_lyrics("yt-abc")[0].text == "corretto a mano"          # il testo non viene toccato
+    too_strict = c.post("/api/songs/yt-abc/notes/apply", json=NoteParams(min_note_s=0.5).to_dict())
+    assert too_strict.status_code == 400 and len(lib.read_notes("yt-abc")) == 6

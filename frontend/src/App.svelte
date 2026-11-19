@@ -1,6 +1,7 @@
 <script lang="ts">
   import { parseHash, type Route } from "./lib/router";
   import Library from "./screens/Library.svelte";
+  import Verify from "./screens/Verify.svelte";
 
   let route = $state<Route>(parseHash(location.hash));
 
@@ -13,6 +14,8 @@
 
 {#if route.name === "library"}
   <Library />
+{:else if route.name === "verify"}
+  {#key route.id}<Verify id={route.id} />{/key}
 {:else}
   <main class="page">
     <p class="muted">Questa schermata non è ancora disponibile.</p>

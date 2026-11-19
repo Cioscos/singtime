@@ -65,6 +65,9 @@ export const putLyrics = async (id: string, texts: string[]) =>
 export const previewNotes = async (id: string, params: NoteParams) =>
   (await request<{ notes: Note[] }>(`${song(id)}/notes/preview`, json("POST", params))).notes;
 
+export const applyNotes = async (id: string, params: NoteParams) =>
+  (await request<{ notes: Note[] }>(`${song(id)}/notes/apply`, json("POST", params))).notes;
+
 export const audioUrl = (id: string, which: "vocals" | "instrumental") => `${song(id)}/audio/${which}`;
 
 export interface ScoreBody {
