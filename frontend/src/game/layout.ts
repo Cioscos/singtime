@@ -53,3 +53,24 @@ export function visibleSlice(notes: Note[], from: number, to: number): [number, 
   while (last < notes.length && notes[last].start <= to) last++;
   return [first, last];
 }
+
+/**
+ * La barra a cui riferire la voce all'istante `t`: quella in corso, altrimenti
+ * la più vicina nel tempo. Serve a riportare il pallino all'ottava giusta.
+ */
+export function targetNote(notes: Note[], t: number): Note | null {
+  if (notes.length === 0) return null;
+  let low = 0;
+  let high = notes.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (notes[middle].start + notes[middle].duration <= t) low = middle + 1;
+    else high = middle;
+  }
+  // `low` è la prima barra che non è ancora finita.
+  if (low >= notes.length) return notes[notes.length - 1];
+  const next = notes[low];
+  if (next.start <= t || low === 0) return next;
+  const previous = notes[low - 1];
+  return t - (previous.start + previous.duration) <= next.start - t ? previous : next;
+}

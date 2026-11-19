@@ -30,3 +30,19 @@ test("visibleSlice finds the notes inside a time window", () => {
   expect(visibleSlice(notes, 10, 20)).toEqual([6, 6]);
   expect(visibleSlice([], 0, 1)).toEqual([0, 0]);
 });
+
+import { targetNote } from "./layout";
+
+test("targetNote is the note being sung, or the nearest one in time", () => {
+  const notes = [
+    { start: 1, duration: 1, pitch: 60 },
+    { start: 3, duration: 1, pitch: 64 },
+    { start: 10, duration: 1, pitch: 67 },
+  ];
+  expect(targetNote(notes, 1.5)?.pitch).toBe(60);      // dentro la prima
+  expect(targetNote(notes, 0.2)?.pitch).toBe(60);      // prima dell'inizio: la prima
+  expect(targetNote(notes, 2.2)?.pitch).toBe(60);      // nella pausa, più vicina alla fine della prima
+  expect(targetNote(notes, 2.8)?.pitch).toBe(64);      // nella pausa, più vicina all'inizio della seconda
+  expect(targetNote(notes, 50)?.pitch).toBe(67);       // dopo la fine: l'ultima
+  expect(targetNote([], 1)).toBeNull();
+});
