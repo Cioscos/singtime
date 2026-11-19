@@ -4,10 +4,22 @@ version = "0.1.0"
 description = "Gioco di canto con tracciato generato automaticamente"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "fastapi", "uvicorn[standard]", "python-multipart", "httpx",
-  "yt-dlp[default]", "numpy", "scipy", "soundfile", "librosa",
-  "torch", "torchaudio",
-  "audio-separator[cpu]", "swift-f0[audio]", "torchfcpe", "faster-whisper",
+  "fastapi",
+  "uvicorn[standard]",
+  "python-multipart",
+  "httpx",
+  "yt-dlp[default]",
+  "numpy",
+  "scipy",
+  "soundfile",
+  "librosa",
+  "torch",
+  "torchaudio",
+  "audio-separator[cpu]",
+  "swift-f0[audio]",
+  "torchfcpe",
+  "faster-whisper",
+  "audioread>=3.1.0",
 ]
 
 [project.scripts]
