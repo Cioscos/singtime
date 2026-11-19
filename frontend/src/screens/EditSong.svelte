@@ -67,6 +67,12 @@
       show(await getSong(id));
       choice = song?.lyrics_choice ?? "auto";
       await loadLyrics();
+      if (song && song.queue_position !== null) {
+        // Il brano è già in lavorazione (per esempio una ricerca lanciata prima di ricaricare la pagina):
+        // si aspetta che finisca, altrimenti si lavorerebbe su righe che stanno per cambiare.
+        searching = true;
+        poll();
+      }
     } catch (e) {
       error = (e as Error).message;
     }
@@ -215,7 +221,7 @@
           {/each}
         </div>
         <div class="row">
-          <button class="primary" onclick={saveText} disabled={!textChanged}>Salva testo</button>
+          <button class="primary" onclick={saveText} disabled={!textChanged || searching}>Salva testo</button>
           <span class="muted">Si correggono le parole; i tempi delle righe restano quelli.</span>
         </div>
       {/if}

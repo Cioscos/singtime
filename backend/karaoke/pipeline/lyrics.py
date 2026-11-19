@@ -32,6 +32,10 @@ class LyricsError(Exception):
     """La ricerca del testo si è rotta; il messaggio è in italiano e va mostrato così com'è."""
 
 
+class LrclibUnreachable(Exception):
+    """LRCLIB non ha risposto: non si sa se il testo ci sia."""
+
+
 # --- formato LRC -------------------------------------------------------------
 
 _LRC_TIME = re.compile(r"\[(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)\]")
@@ -72,21 +76,31 @@ def lrc_mismatch(entries: list[tuple[float, str]], lines: list[LyricLine],
     Chi carica i testi su LRCLIB a volte copia i tempi di un'altra versione del
     brano o li sbaglia: la durata coincide lo stesso, ma la voce racconta altro.
     """
-    rushed = 0
-    for (start, text), (following, _) in zip(entries, entries[1:]):
-        letters = sum(1 for char in text if char.isalnum())
-        if letters > (following - start) * config.LYRICS_MAX_LETTERS_PER_S:
-            rushed += 1
-    if rushed > config.LYRICS_MAX_RUSHED_LINES:
-        return f"{rushed} righe più fitte di quanto si possa cantare"
+    # Più righe di fila in un tempo in cui non si possono cantare. Si guarda a gruppi e non
+    # alla riga singola: una traduzione o un coro allo stesso istante della riga principale è normale.
+    group = config.LYRICS_RUSH_GROUP_LINES
+    letters = [sum(1 for char in text if char.isalnum()) for _, text in entries]
+    for i in range(len(entries) - group):
+        span = entries[i + group][0] - entries[i][0]
+        if sum(letters[i:i + group]) > span * config.LYRICS_MAX_LETTERS_PER_S:
+            minutes, seconds = divmod(int(entries[i][0]), 60)
+            return f"attorno a {minutes}:{seconds:02d} le righe sono troppo fitte per essere cantate"
 
+    if not notes:
+        return None
     margin = config.LYRICS_VOICE_MARGIN_S
+    middles = [n.start + n.duration / 2 for n in notes]
+    covered = [any(line.start - margin <= middle <= line.end + margin for line in lines) for middle in middles]
     total = sum(n.duration for n in notes)
-    wordless = sum(n.duration for n in notes
-                   if not any(line.start - margin <= n.start + n.duration / 2 <= line.end + margin
-                              for line in lines))
-    if total > 0 and wordless > total * config.LYRICS_MAX_WORDLESS_SHARE:
+    wordless = sum(n.duration for n, inside in zip(notes, covered) if not inside)
+    if wordless > total * config.LYRICS_MAX_WORDLESS_SHARE:
         return f"il {wordless / total:.0%} del canto cade dove il testo tace"
+
+    # Il contrario: righe che scorrono mentre nessuno canta (testo in anticipo, o di un'altra versione).
+    silent = sum(1 for line in lines
+                 if not any(line.start - margin <= middle <= line.end + margin for middle in middles))
+    if silent > len(lines) * config.LYRICS_MAX_SILENT_LINES_SHARE:
+        return f"{silent} righe su {len(lines)} cadono dove nessuno canta"
     return None
 
 
@@ -98,7 +112,7 @@ def fetch_lrclib(artist: str, title: str, duration_s: float,
 
     Si accetta solo se la durata coincide entro pochi secondi: la versione su
     YouTube spesso non è quella su cui il testo è stato sincronizzato.
-    Non solleva mai per errori di rete.
+    Se il servizio non risponde solleva `LrclibUnreachable`: "non lo so" non è "non c'è".
     """
     own_client = client is None
     client = client or httpx.Client(base_url=LRCLIB_URL, timeout=10.0)
@@ -119,16 +133,21 @@ def fetch_lrclib(artist: str, title: str, duration_s: float,
         gap = abs(duration - duration_s)
         return gap if gap <= tolerance else None
 
+    def answered(response: httpx.Response) -> httpx.Response:
+        if response.status_code >= 500 or response.status_code == 429:
+            raise LrclibUnreachable(f"risposta {response.status_code}")
+        return response
+
     try:
-        exact = client.get("/api/get", headers=headers, params={
-            "artist_name": artist, "track_name": title, "duration": int(round(duration_s))})
+        exact = answered(client.get("/api/get", headers=headers, params={
+            "artist_name": artist, "track_name": title, "duration": int(round(duration_s))}))
         if exact.status_code == 200:
             data = exact.json()
             # Qui la durata l'abbiamo chiesta noi: se la risposta non la ripete, vale la nostra.
             if distance(data, missing_duration=duration_s) is not None:
                 return data["syncedLyrics"]
-        search = client.get("/api/search", headers=headers,
-                            params={"artist_name": artist, "track_name": title})
+        search = answered(client.get("/api/search", headers=headers,
+                                     params={"artist_name": artist, "track_name": title}))
         if search.status_code != 200:
             return None
         found = search.json()
@@ -138,8 +157,10 @@ def fetch_lrclib(artist: str, title: str, duration_s: float,
         if not ranked:
             return None
         return min(ranked, key=lambda pair: pair[0])[1]["syncedLyrics"]
-    except (httpx.HTTPError, ValueError) as exc:
-        log.warning("LRCLIB non raggiungibile: %s", exc)
+    except httpx.HTTPError as exc:
+        raise LrclibUnreachable(str(exc) or type(exc).__name__) from exc
+    except ValueError as exc:                       # una risposta che non è JSON vale come "non trovato"
+        log.warning("Risposta di LRCLIB illeggibile: %s", exc)
         return None
     finally:
         if own_client:
@@ -282,7 +303,14 @@ def find_lyrics(meta: SongMeta, vocals: Path, notes: list[Note],
     note = None
     if choice in ("auto", "lrclib"):
         searchable = bool(meta.artist and meta.title and meta.duration_s)
-        synced = fetch(meta.artist, meta.title, meta.duration_s) if searchable else None
+        try:
+            synced = fetch(meta.artist, meta.title, meta.duration_s) if searchable else None
+        except LrclibUnreachable as exc:
+            log.warning("LRCLIB non raggiungibile: %s", exc)
+            if choice == "lrclib":
+                # Un errore lascia il testo che c'era: senza risposta non si sa se LRCLIB ne abbia uno.
+                raise LyricsError("LRCLIB non è raggiungibile: riprova più tardi") from exc
+            synced = None
         entries = parse_lrc(synced) if synced else []
         lines = lines_from_lrc(entries, notes, meta.duration_s or 0.0)
         # Il confronto con la voce serve a scegliere al posto di chi gioca: se ha scelto lui, non si fa.

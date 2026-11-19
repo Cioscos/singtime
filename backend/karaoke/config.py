@@ -21,9 +21,10 @@ WHISPER_MODEL = "large-v3"
 LYRICS_DURATION_TOLERANCE_S = 3.0
 # Quando il testo trovato in rete non è quello di questa registrazione (vedi lyrics.lrc_mismatch).
 LYRICS_MAX_LETTERS_PER_S = 30.0     # il rap più fitto della prova arriva a 20
-LYRICS_MAX_RUSHED_LINES = 1         # una svista si perdona
+LYRICS_RUSH_GROUP_LINES = 3         # righe di fila su cui si misura: una riga doppia o una svista non contano
 LYRICS_VOICE_MARGIN_S = 0.75
 LYRICS_MAX_WORDLESS_SHARE = 0.15    # quota del canto che può cadere fuori dalle righe
+LYRICS_MAX_SILENT_LINES_SHARE = 0.25  # quota delle righe che possono cadere dove nessuno canta
 # Una prima parola trascritta così tanto prima della seconda è rimasta indietro (vedi lyrics._pull_in_first_word).
 WHISPER_LEFT_BEHIND_GAP_S = 2.5     # nella prova le pause vere arrivano a 2,1 s, quelle false partono da 2,8
 WHISPER_LEFT_BEHIND_WORD_S = 0.6

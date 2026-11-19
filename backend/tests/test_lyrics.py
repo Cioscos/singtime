@@ -3,7 +3,7 @@ import pytest
 
 from karaoke.models import LyricLine, Note, SongMeta, Word
 from karaoke.pipeline.lyrics import (
-    LyricsError,
+    LrclibUnreachable, LyricsError,
     fetch_lrclib, find_lyrics, lines_from_lrc, lines_from_words, parse_lrc,
 )
 
@@ -71,10 +71,14 @@ def test_fetch_rejects_other_versions():                             # spec §6.
     assert fetch_lrclib("A", "T", 200.0, client=lrclib(handler)) is None
 
 
-def test_fetch_survives_network_error():
-    def handler(req):
+def test_fetch_says_when_lrclib_cannot_be_reached():
+    # "Non raggiungibile" non è "non ce l'ha": chi chiama deve poterli distinguere.
+    def down(req):
         raise httpx.ConnectError("giù")
-    assert fetch_lrclib("A", "T", 200.0, client=lrclib(handler)) is None
+    with pytest.raises(LrclibUnreachable):
+        fetch_lrclib("A", "T", 200.0, client=lrclib(down))
+    with pytest.raises(LrclibUnreachable):
+        fetch_lrclib("A", "T", 200.0, client=lrclib(lambda req: httpx.Response(503, json={})))
 
 
 def test_lines_from_words_splits_long_segments():
@@ -281,3 +285,52 @@ def test_auto_has_nothing_to_explain_when_lrclib_is_fine_or_absent(tmp_path):
     *_, note = find_lyrics(meta(), tmp_path / "v.flac", [], fetch=lambda *a, **k: None,
                            transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
     assert note is None
+
+
+# --- dalla revisione: rete assente, righe doppie, testo in anticipo -------------
+
+def unreachable(*args, **kwargs):
+    raise LrclibUnreachable("giù")
+
+
+def test_auto_transcribes_when_lrclib_cannot_be_reached(tmp_path):
+    lines, src, _, note = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 70), fetch=unreachable,
+                                      transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
+    assert (lines, src, note) == (WHISPER_LINE, "whisper", None)
+
+
+def test_choice_lrclib_with_lrclib_unreachable_is_an_error_not_an_empty_text(tmp_path):
+    # Un errore del passo lascia sul disco il testo che c'era: svuotarlo sarebbe una perdita.
+    with pytest.raises(LyricsError, match="LRCLIB non è raggiungibile"):
+        find_lyrics(meta(lyrics_choice="lrclib"), tmp_path / "v.flac", sung(10, 70), fetch=unreachable,
+                    transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
+
+
+@pytest.mark.parametrize("lrc", [
+    # testo con la traduzione: due righe allo stesso istante
+    "[00:10.00]Hello my old friend\n[00:10.00]Ciao vecchio amico mio\n[00:20.00]How are you today\n"
+    "[00:20.00]Come stai oggi\n[00:30.00]See you again\n[00:30.00]Ci rivediamo\n[00:40.00]",
+    # coro tra parentesi subito dopo la riga principale
+    "[00:10.00]I really love you\n[00:10.20](really love you)\n[00:20.00]I really need you\n"
+    "[00:20.20](really need you)\n[00:30.00]Stay with me\n[00:40.00]",
+])
+def test_find_keeps_lrclib_text_with_doubled_lines(tmp_path, lrc):
+    _, src, _, note = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 40), fetch=lambda *a, **k: lrc,
+                                  transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
+    assert src == "lrclib" and note is None
+
+
+def test_find_drops_lrclib_text_that_runs_ahead_of_the_voice(tmp_path):
+    # Il testo comincia a 10 s, ma fino a 30 s nessuno canta: le prime righe scorrono nel vuoto.
+    lrc = "".join(f"[00:{t}.00]Riga che comincia a {t}\n" for t in range(10, 60, 5)) + "[01:00.00]"
+    _, src, _, note = find_lyrics(meta(), tmp_path / "v.flac", sung(30, 60), fetch=lambda *a, **k: lrc,
+                                  transcribe_fn=lambda *a: (WHISPER_LINE, "en"))
+    assert src == "whisper" and "righe" in note
+
+
+def test_find_keeps_lrclib_text_with_a_few_lines_nobody_sings(tmp_path):
+    # Due righe parlate su dieci non bastano a dire che il testo è di un'altra versione.
+    lrc = "".join(f"[00:{t}.00]Riga che comincia a {t}\n" for t in range(10, 60, 5)) + "[01:00.00]"
+    _, src, _, _ = find_lyrics(meta(), tmp_path / "v.flac", sung(20, 60), fetch=lambda *a, **k: lrc,
+                               transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
+    assert src == "lrclib"
