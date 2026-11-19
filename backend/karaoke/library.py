@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import threading
 from dataclasses import asdict
@@ -27,6 +28,10 @@ LYRICS = "lyrics.json"
 SCORES = "scores.json"
 
 INTERRUPTED = "Elaborazione interrotta"
+
+# Un id è il nome di una cartella: solo lettere, cifre, trattino e trattino basso,
+# così non può mai indicare un percorso fuori dalla libreria.
+_VALID_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class SongExists(Exception):
@@ -64,12 +69,16 @@ class Library:
     # --- brani ---------------------------------------------------------
 
     def path(self, song_id: str, name: str) -> Path:
+        if not _VALID_ID.match(song_id):
+            raise SongNotFound(song_id)
         return self.root / song_id / name
 
     def exists(self, song_id: str) -> bool:
-        return self.path(song_id, META).is_file()
+        return _VALID_ID.match(song_id) is not None and self.path(song_id, META).is_file()
 
     def create(self, meta: SongMeta) -> Path:
+        if not _VALID_ID.match(meta.id):
+            raise ValueError(f"Identificativo non valido: {meta.id!r}")
         with self._lock:
             if self.exists(meta.id):
                 raise SongExists(meta.id)

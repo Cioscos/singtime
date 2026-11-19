@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from karaoke.models import PitchCurve
 from karaoke.pipeline.notes import NoteParams, load_note_params, save_note_params, segment_notes
@@ -99,3 +100,27 @@ def test_params_change_the_result():
     c = curve([(0.5, None), (0.15, flat(60)), (0.5, None)])
     assert len(segment_notes(c)) == 1
     assert segment_notes(c, NoteParams(min_note_s=0.2)) == []
+
+
+@pytest.mark.parametrize("hop", [0.010, 0.016])
+@pytest.mark.parametrize("semitones,seconds", [(3, 0.3), (5, 0.5), (7, 0.6), (-5, 0.5)])
+def test_medium_speed_glissando_is_two_notes(semitones, seconds, hop):
+    # I glissati lenti (una decina di semitoni al secondo) sono comuni nel canto.
+    c = curve([(0.5, flat(60)), (seconds, lambda t: 60 + semitones * t / seconds), (0.5, flat(60 + semitones))], hop)
+    notes = segment_notes(c)
+    assert len(notes) == 2
+    assert abs(notes[0].pitch - 60) < 0.3 and abs(notes[1].pitch - (60 + semitones)) < 0.3
+
+
+@pytest.mark.parametrize("hop", [0.010, 0.016])
+def test_fall_at_the_end_of_a_phrase_adds_no_bars(hop):
+    c = curve([(0.3, None), (0.8, flat(64)), (0.4, lambda t: 64 - 5 * t / 0.4), (0.5, None)], hop)
+    notes = segment_notes(c)
+    assert len(notes) == 1 and abs(notes[0].pitch - 64) < 0.3
+
+
+@pytest.mark.parametrize("hop", [0.010, 0.016])
+def test_fast_melody_keeps_every_note(hop):
+    pitches = [60, 62, 64, 62, 60, 65, 64, 62]
+    notes = segment_notes(curve([(0.16, flat(p)) for p in pitches], hop))
+    assert [round(n.pitch) for n in notes] == pitches

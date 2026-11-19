@@ -102,6 +102,11 @@ def _extract_info(url: str) -> dict[str, Any]:
         return ydl.extract_info(url, download=False) or {}
 
 
+def too_long_message(duration_s: float) -> str:
+    return (f"Brano troppo lungo ({round(duration_s / 60)} minuti): "
+            f"il limite è {config.MAX_DURATION_S // 60} minuti.")
+
+
 def probe_url(url: str, extract: Callable[[str], dict[str, Any]] = _extract_info) -> UrlInfo:
     """Controlla che l'URL sia un video scaricabile, senza scaricarlo."""
     video_id = youtube_id(url)
@@ -117,9 +122,7 @@ def probe_url(url: str, extract: Callable[[str], dict[str, Any]] = _extract_info
     if not duration:
         raise AcquireError("Video non disponibile (durata sconosciuta).")
     if duration > config.MAX_DURATION_S:
-        raise AcquireError(
-            f"Brano troppo lungo ({round(duration / 60)} minuti): "
-            f"il limite è {config.MAX_DURATION_S // 60} minuti.")
+        raise AcquireError(too_long_message(duration))
     artists = info.get("artists") or []
     artist, title = clean_title(
         info.get("title") or "", info.get("uploader") or info.get("channel"),

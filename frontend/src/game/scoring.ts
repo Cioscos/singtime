@@ -84,6 +84,11 @@ export class ScoreKeeper {
     return Math.round(this.points);
   }
 
+  /** Fino a che punto del brano la voce è già stata giudicata. */
+  get scoredUntil(): number {
+    return this.lastT ?? -Infinity;
+  }
+
   get streak(): number {
     return this.streakCount;
   }

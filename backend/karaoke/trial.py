@@ -10,6 +10,7 @@ ascolta e la si guarda nella vista di verifica come qualunque altro brano.
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import time
 from pathlib import Path
@@ -31,7 +32,8 @@ Timing = tuple[str, str, float]
 
 
 def separator_label(model_filename: str) -> str:
-    return SEPARATOR_LABELS.get(model_filename, Path(model_filename).stem)
+    label = SEPARATOR_LABELS.get(model_filename, Path(model_filename).stem)
+    return re.sub(r"[^A-Za-z0-9_-]+", "-", label)   # finisce dentro l'id del brano
 
 
 def timed_stages(stages: dict[str, StageFn], timings: list[Timing]) -> dict[str, StageFn]:

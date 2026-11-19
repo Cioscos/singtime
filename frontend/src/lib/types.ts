@@ -83,6 +83,7 @@ export interface NoteParams {
   split_semitones: number;
   settle_s: number;
   merge_semitones: number;
+  glide_window_s: number;
 }
 
 export interface SystemInfo {

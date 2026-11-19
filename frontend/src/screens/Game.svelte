@@ -14,7 +14,7 @@
 
   let { id }: { id: string } = $props();
 
-  type Phase = "loading" | "uncalibrated" | "denied" | "error" | "countdown" | "playing" | "paused";
+  type Phase = "loading" | "uncalibrated" | "denied" | "error" | "countdown" | "gesture" | "playing" | "paused";
 
   let phase = $state<Phase>("loading");
   let message = $state("");
@@ -37,6 +37,7 @@
   let player: SongPlayer | null = null;
   let mic: Mic | null = null;
   let micLost = false;
+  let pendingStart = false;   // in pausa prima ancora che il brano sia partito
   let frame = 0;
   let countdownTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
@@ -90,6 +91,7 @@
       latencyS = settings.latency_ms / 1000;
       ctx = new AudioContext();
       await openMic();
+      if (disposed) return;
       player = await SongPlayer.load(ctx, id);
       if (disposed) return;
       player.setGuideVolume(settings.guide_volume);
@@ -107,8 +109,13 @@
 
   async function openMic() {
     if (!ctx || !settings) return;
+    const opened = await Mic.open(ctx, settings.mic_device_id);
+    if (disposed) {
+      opened.close();   // la schermata è stata lasciata mentre si apriva il microfono
+      return;
+    }
     mic?.close();
-    mic = await Mic.open(ctx, settings.mic_device_id);
+    mic = opened;
     micLost = false;
     mic.onReading = onReading;
     mic.onLost = () => {
@@ -142,6 +149,7 @@
     trail = [];
     voice = null;
     pauseReason = "";
+    pendingStart = false;
     countdown = 3;
     phase = "countdown";
     tick();
@@ -154,13 +162,32 @@
         tick();
         return;
       }
-      ctx?.resume();
-      player?.play();
-      phase = "playing";
+      begin();
     }, 1000);
   }
 
+  async function begin() {
+    if (!ctx || !player) return;
+    // Senza un gesto dell'utente (pagina ricaricata, scheda ripristinata) il browser tiene l'audio sospeso.
+    await Promise.race([ctx.resume(), new Promise((resolve) => setTimeout(resolve, 300))]);
+    if (disposed || (phase !== "countdown" && phase !== "gesture")) return;
+    if (ctx.state !== "running") {
+      phase = "gesture";
+      return;
+    }
+    player.play();
+    phase = "playing";
+  }
+
   function pause(reason = "") {
+    if (phase === "countdown" || phase === "gesture") {
+      // Il brano non è ancora partito: si ferma il conto alla rovescia e si ripartirà da lì.
+      clearTimeout(countdownTimer);
+      pendingStart = true;
+      pauseReason = reason;
+      phase = "paused";
+      return;
+    }
     if (phase !== "playing") return;
     player?.pause();
     pauseReason = reason;
@@ -171,6 +198,14 @@
     if (phase !== "paused" || !player) return;
     try {
       if (micLost) await openMic();
+      if (pendingStart) {
+        pendingStart = false;
+        pauseReason = "";
+        countdown = 3;
+        phase = "countdown";
+        tick();
+        return;
+      }
       await ctx?.resume();
       pauseReason = "";
       player.play();
@@ -200,6 +235,7 @@
       event.preventDefault();
       if (phase === "playing") pause();
       else if (phase === "paused") resume();
+      else if (phase === "gesture") begin();
     } else if (event.code === "Escape" && phase === "playing") {
       pause();
     }
@@ -231,6 +267,7 @@
     const { current, next } = lineAt(lines, now);
     drawFrame(g, {
       width, height, now, notes, range,
+      scoredUntil: keeper.scoredUntil,
       hits: (i) => keeper.hitSegments(i),
       trail,
       voice: phase === "playing" ? voice : null,
@@ -262,6 +299,15 @@
       <p class="big">Preparo il brano…</p>
     {:else if phase === "countdown"}
       <p class="count">{countdown}</p>
+    {:else if phase === "gesture"}
+      <div class="panel box">
+        <h2>Pronto</h2>
+        <p class="muted">Il browser avvia l'audio solo dopo un tuo gesto.</p>
+        <div class="row">
+          <button class="primary" onclick={begin}>Inizia</button>
+          <button onclick={exit}>Esci</button>
+        </div>
+      </div>
     {:else if phase === "uncalibrated"}
       <div class="panel box">
         <h2>Ritardo del microfono non ancora tarato</h2>

@@ -8,7 +8,16 @@ import { HOP_SIZE, WINDOW_SIZE } from "./pitch-window";
 const QUIET_BEFORE_ONSET_S = 0.15;
 /** Un attacco "risponde" a un clic solo se arriva entro questo tempo. */
 const MATCH_WINDOW_S = 0.5;
-const MIN_MATCHES = 3;
+/** Servono almeno tanti clic sentiti, e d'accordo tra loro, per fidarsi della misura. */
+const MIN_MATCHES = 5;
+/** Due ritardi "sono d'accordo" se distano dalla mediana meno di così. */
+const AGREEMENT_S = 0.02;
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
 
 /** Istanti in cui il volume supera la soglia dopo un tratto di silenzio. */
 export function detectOnsets(readings: { t: number; rms: number }[], threshold: number): number[] {
@@ -24,7 +33,8 @@ export function detectOnsets(readings: { t: number; rms: number }[], threshold: 
 
 /**
  * Ritardo in millisecondi: per ogni clic il primo attacco che lo segue, poi la
- * mediana delle differenze. Null se i clic sentiti sono meno di tre.
+ * mediana delle differenze. Null se i clic sentiti e concordi sono meno di cinque:
+ * rumori a caso danno ritardi sparsi, e una misura sbagliata falserebbe tutto il punteggio.
  */
 export function estimateLatencyMs(clickTimes: number[], onsetTimes: number[]): number | null {
   const delays: number[] = [];
@@ -33,10 +43,10 @@ export function estimateLatencyMs(clickTimes: number[], onsetTimes: number[]): n
     if (answer !== undefined) delays.push(answer - click);
   }
   if (delays.length < MIN_MATCHES) return null;
-  delays.sort((a, b) => a - b);
-  const middle = Math.floor(delays.length / 2);
-  const median = delays.length % 2 === 1 ? delays[middle] : (delays[middle - 1] + delays[middle]) / 2;
-  return median * 1000;
+  const center = median(delays);
+  const agreeing = delays.filter((delay) => Math.abs(delay - center) <= AGREEMENT_S);
+  if (agreeing.length < MIN_MATCHES) return null;
+  return median(agreeing) * 1000;
 }
 
 /**

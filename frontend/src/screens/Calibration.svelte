@@ -18,10 +18,14 @@
   let saved = $state(false);
   let ctx: AudioContext | null = null;
   let mic: Mic | null = null;
+  let alive = true;
 
   onMount(() => {
     getSettings().then((loaded) => (settings = loaded)).catch((e) => (error = (e as Error).message));
-    return cleanup;
+    return () => {
+      alive = false;
+      cleanup();
+    };
   });
 
   function cleanup() {
@@ -53,6 +57,7 @@
     try {
       ctx = new AudioContext();
       mic = await Mic.open(ctx, settings.mic_device_id);
+      if (!alive) return;   // schermata lasciata nel frattempo: niente clic, e il microfono si chiude
       const readings: { t: number; rms: number }[] = [];
       mic.onReading = (reading) => readings.push({ t: reading.t, rms: reading.rms });
 
@@ -61,6 +66,7 @@
       clicks.forEach((when) => scheduleClick(ctx!, when));
       const totalMs = (0.6 + CLICKS * CLICK_SPACING_S + 0.4) * 1000;
       await new Promise((resolve) => setTimeout(resolve, totalMs));
+      if (!alive) return;
 
       // Soglia adattata al volume: ben sopra il fruscio, ben sotto il picco dei clic.
       const sorted = readings.map((r) => r.rms).sort((a, b) => a - b);
@@ -104,8 +110,8 @@
 
   <section class="panel">
     <ol>
-      <li>Indossa le cuffie e alza un po' il volume.</li>
-      <li>Avvicina una cuffia al microfono, fino a toccarlo.</li>
+      <li>Togli le cuffie dalle orecchie: i clic sono forti. Alza un po' il volume.</li>
+      <li>Appoggia una cuffia al microfono e tienila ferma.</li>
       <li>Premi Avvia e resta in silenzio per cinque secondi.</li>
     </ol>
 
@@ -120,6 +126,7 @@
       {/if}
     {:else if phase === "failed"}
       <p class="error">Non ho sentito i clic: alza il volume o avvicina la cuffia.</p>
+      <p class="muted">Servono almeno cinque clic su {CLICKS} sentiti con lo stesso ritardo; ne ho riconosciuti {heard}. Tieni ferma la cuffia e resta in silenzio.</p>
     {/if}
 
     <div class="row">

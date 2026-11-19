@@ -9,6 +9,8 @@ export interface FrameState {
   height: number;
   /** Il punto del brano che si sta sentendo, in secondi. */
   now: number;
+  /** Fino a dove la voce è già stata giudicata: più indietro di `now` di qualche decina di millisecondi. */
+  scoredUntil: number;
   notes: Note[];
   range: PitchRange;
   /** I tratti già presi della barra i-esima. */
@@ -97,10 +99,14 @@ export function drawFrame(g: CanvasRenderingContext2D, s: FrameState): void {
     g.save();
     bar(g, x(note.start), x(end), yNote, barHeight);
     g.clip();
-    g.fillStyle = isCurrent ? COLORS.current : COLORS.missed;
+    g.fillStyle = COLORS.current;
     g.fillRect(x(note.start), yNote - barHeight, x(end) - x(note.start), barHeight * 2);
-    g.fillStyle = COLORS.missed;
-    g.fillRect(x(note.start), yNote - barHeight, x(Math.min(now, end)) - x(note.start), barHeight * 2);
+    // "Mancato" solo dove la voce è già stata giudicata: il tratto appena passato è ancora in attesa.
+    const judged = Math.min(now, end, s.scoredUntil);
+    if (judged > note.start) {
+      g.fillStyle = COLORS.missed;
+      g.fillRect(x(note.start), yNote - barHeight, x(judged) - x(note.start), barHeight * 2);
+    }
     g.fillStyle = COLORS.hit;
     for (const [from, to] of s.hits(i)) {
       g.fillRect(x(from), yNote - barHeight, Math.max(1, x(to) - x(from)), barHeight * 2);

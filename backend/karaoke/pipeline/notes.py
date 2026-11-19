@@ -29,6 +29,7 @@ class NoteParams:
     split_semitones: float = 0.8    # scarto oltre il quale è un'altra nota
     settle_s: float = 0.06          # quanto deve durare lo scarto per contare
     merge_semitones: float = 0.5    # note consecutive più vicine di così si uniscono
+    glide_window_s: float = 0.12    # finestra in cui si riconosce un glissato lento
 
     def to_dict(self) -> dict[str, float]:
         return asdict(self)
@@ -100,18 +101,44 @@ def _split_drift(smooth: np.ndarray, zone: Segment, hop: float, params: NotePara
     return segments
 
 
+def _gliding(local: np.ndarray, hop: float, params: NoteParams) -> np.ndarray:
+    """Fotogrammi in cui l'altezza scivola in modo continuo, anche lentamente.
+
+    Su una finestra più larga di quella dei salti si chiede che il movimento ci
+    sia da entrambi i lati del fotogramma: un salto netto ha tutto il movimento
+    da un lato solo e non conta, così le melodie veloci restano intatte. Ai bordi
+    del tratto, dove un lato manca, si usa l'altro.
+    """
+    length = len(local)
+    half = max(1, int(round(params.glide_window_s / 2 / hop)))
+    index = np.arange(length)
+    after = np.minimum(index + half, length - 1)
+    before = np.maximum(index - half, 0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rise_after = np.where(after > index, np.abs(local[after] - local) * half / (after - index), np.nan)
+        rise_before = np.where(index > before, np.abs(local - local[before]) * half / (index - before), np.nan)
+    rise_after = np.where(np.isnan(rise_after), rise_before, rise_after)
+    rise_before = np.where(np.isnan(rise_before), rise_after, rise_before)
+    rise_after = np.nan_to_num(rise_after)
+    rise_before = np.nan_to_num(rise_before)
+    sustained = np.minimum(rise_after, rise_before) > params.split_semitones / 4
+    return sustained & (rise_after + rise_before > params.split_semitones)
+
+
 def _partition_run(smooth: np.ndarray, run: Segment, hop: float, params: NoteParams) -> list[Segment]:
     """Divide un tratto con voce in segmenti contigui che lo coprono tutto."""
     start, end = run
     length = end - start
     local = smooth[start:end]
 
-    # Transizioni: fotogrammi in cui la curva lisciata cambia in fretta.
+    # Transizioni: fotogrammi in cui la curva lisciata cambia in fretta (salti e glissati rapidi)…
     half = max(1, int(round(params.settle_s / 2 / hop)))
     index = np.arange(length)
     ahead = local[np.minimum(index + half, length - 1)]
     behind = local[np.maximum(index - half, 0)]
     moving = np.abs(ahead - behind) > params.split_semitones
+    # …oppure sta scivolando in modo continuo (glissati lenti, cadute a fine frase).
+    moving |= _gliding(local, hop, params)
 
     segments: list[Segment] = []
     for zone_start, zone_end in _runs(~moving):

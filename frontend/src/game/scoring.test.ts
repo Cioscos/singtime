@@ -113,3 +113,11 @@ test("finish closes the notes never reached", () => {
 test("starsFor thresholds", () => {
   expect([0.95, 0.8, 0.6, 0.5, 0.3, 0.1].map(starsFor)).toEqual([5, 4, 3, 2, 1, 0]);
 });
+
+test("scoredUntil is the time of the last reading judged", () => {
+  const k = new ScoreKeeper(one, "normal");
+  expect(k.scoredUntil).toBe(-Infinity);
+  k.feed(1.2, 60);
+  k.feed(1.25, null);
+  expect(k.scoredUntil).toBe(1.25);
+});

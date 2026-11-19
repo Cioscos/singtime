@@ -73,6 +73,8 @@ uv run python -m karaoke.trial --clean    # elimina le varianti create dalla pro
 ```
 
 Ogni variante compare in libreria come un brano a sé, con il nome del modello tra parentesi quadre.
+Non lanciare la prova mentre il server sta elaborando un brano: i due processi usano la stessa
+cartella di lavoro per la separazione e si disturberebbero.
 I modelli predefiniti si scelgono in `backend/karaoke/config.py`.
 
 ## Sviluppo

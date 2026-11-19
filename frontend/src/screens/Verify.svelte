@@ -19,6 +19,7 @@
     { key: "split_semitones", label: "Scarto che divide due note", min: 0.3, max: 2, step: 0.05, unit: "semitoni" },
     { key: "settle_s", label: "Quanto deve durare lo scarto", min: 0.02, max: 0.2, step: 0.01, unit: "s" },
     { key: "merge_semitones", label: "Note vicine da unire", min: 0, max: 1.5, step: 0.05, unit: "semitoni" },
+    { key: "glide_window_s", label: "Finestra che riconosce i glissati lenti", min: 0.04, max: 0.4, step: 0.01, unit: "s" },
   ];
 
   let song = $state<Song | null>(null);

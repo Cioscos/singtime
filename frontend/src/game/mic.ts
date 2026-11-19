@@ -57,6 +57,16 @@ export class Mic {
 
   static async open(ctx: AudioContext, deviceId?: string | null): Promise<Mic> {
     const stream = await openStream(deviceId);
+    try {
+      return await Mic.connect(ctx, stream);
+    } catch (error) {
+      // Se qualcosa va storto dopo l'apertura, il microfono non deve restare acceso.
+      stream.getTracks().forEach((track) => track.stop());
+      throw error;
+    }
+  }
+
+  private static async connect(ctx: AudioContext, stream: MediaStream): Promise<Mic> {
     if (!loadedContexts.has(ctx)) {
       await ctx.audioWorklet.addModule(processorUrl);
       loadedContexts.add(ctx);

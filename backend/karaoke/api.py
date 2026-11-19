@@ -9,6 +9,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Callable, Literal
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -28,6 +29,9 @@ from .pipeline.notes import NoteParams, load_note_params, save_note_params, segm
 SETTINGS_FILE = "settings.json"
 AUDIO_FILES = {"vocals": VOCALS, "instrumental": INSTRUMENTAL}
 NO_CACHE = {"Cache-Control": "no-store"}
+# Il server serve solo questa macchina: si accettano richieste rivolte a questi
+# nomi e provenienti da pagine servite da questi nomi (qualunque porta).
+LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost"})
 
 
 class Settings(BaseModel):
@@ -65,12 +69,13 @@ class ScoreBody(BaseModel):
 
 
 class NoteParamsBody(BaseModel):
-    min_note_s: float = Field(gt=0)
-    max_gap_s: float = Field(ge=0)
-    vibrato_window_s: float = Field(gt=0)
-    split_semitones: float = Field(gt=0)
-    settle_s: float = Field(gt=0)
-    merge_semitones: float = Field(ge=0)
+    min_note_s: float = Field(gt=0, le=2)
+    max_gap_s: float = Field(ge=0, le=2)
+    vibrato_window_s: float = Field(gt=0, le=2)
+    split_semitones: float = Field(gt=0, le=12)
+    settle_s: float = Field(gt=0, le=2)
+    merge_semitones: float = Field(ge=0, le=12)
+    glide_window_s: float = Field(NoteParams().glide_window_s, gt=0, le=2)
 
 
 def _load_settings() -> Settings:
@@ -97,6 +102,16 @@ def create_app(library: Library, jobs: JobQueue,
         yield
 
     app = FastAPI(title="Karaoke a tracciato", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def local_only(request: Request, call_next):
+        # Una pagina web qualsiasi aperta nel browser non deve poter usare questo server.
+        host = (request.headers.get("host") or "").rsplit(":", 1)[0].lower()
+        origin = request.headers.get("origin")
+        origin_host = (urlparse(origin).hostname or "") if origin else None
+        if host not in LOCAL_HOSTS or (origin_host is not None and origin_host not in LOCAL_HOSTS):
+            return JSONResponse(status_code=403, content={"detail": "Richiesta non locale rifiutata"})
+        return await call_next(request)
 
     @app.exception_handler(SongNotFound)
     async def song_not_found(request: Request, exc: SongNotFound) -> JSONResponse:
@@ -179,6 +194,8 @@ def create_app(library: Library, jobs: JobQueue,
                 duration = acquire.normalize_audio(upload, scratch / "check.flac")
             except acquire.AcquireError as exc:
                 raise HTTPException(400, str(exc)) from exc
+            if duration > config.MAX_DURATION_S:
+                raise HTTPException(400, acquire.too_long_message(duration))
             song_id = acquire.file_song_id(upload)
             if library.exists(song_id):
                 return JSONResponse(song_out(library.get(song_id)), status_code=200)

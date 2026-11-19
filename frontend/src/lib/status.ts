@@ -26,6 +26,11 @@ export function songStatus(song: Song): SongStatus {
   return { kind: "error", stage: first, message: "Elaborazione non avviata" };
 }
 
+/** Vero se il brano appena "aggiunto" c'era già: il server restituisce quello esistente. */
+export function wasAlreadyThere(library: Song[], added: Song): boolean {
+  return library.some((song) => song.id === added.id);
+}
+
 export function formatDuration(seconds: number | null): string {
   if (seconds === null) return "";
   const total = Math.round(seconds);

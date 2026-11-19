@@ -22,6 +22,7 @@
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let ctx: AudioContext | null = null;
   let mic: Mic | null = null;
+  let alive = true;
 
   onMount(() => {
     getSettings()
@@ -29,6 +30,7 @@
       .catch((e) => (error = (e as Error).message));
     listMics().then((found) => (mics = found)).catch(() => {});
     return () => {
+      alive = false;
       clearTimeout(saveTimer);
       stopTest();
     };
@@ -54,6 +56,10 @@
     try {
       ctx = new AudioContext();
       mic = await Mic.open(ctx, settings.mic_device_id);
+      if (!alive) {
+        stopTest();   // schermata lasciata mentre si apriva il microfono
+        return;
+      }
       mic.onReading = (reading) => {
         level = Math.min(1, reading.rms * 6);
         note = reading.midi === null ? null : noteName(reading.midi);

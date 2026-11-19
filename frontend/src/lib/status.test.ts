@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { formatDuration, songStatus } from "./status";
+import { formatDuration, songStatus, wasAlreadyThere } from "./status";
 import type { Song, Stage, StageState } from "./types";
 
 const stages = (over: Partial<Record<Stage, Partial<StageState>>>): Record<Stage, StageState> => {
@@ -43,4 +43,11 @@ test("formatDuration", () => {
   expect(formatDuration(249.16)).toBe("4:09");
   expect(formatDuration(59.6)).toBe("1:00");
   expect(formatDuration(null)).toBe("");
+});
+
+test("adding a song that is already in the library is noticed", () => {
+  const library = [song({ id: "yt-a" }), song({ id: "yt-b" })];
+  expect(wasAlreadyThere(library, song({ id: "yt-a" }))).toBe(true);
+  expect(wasAlreadyThere(library, song({ id: "yt-c" }))).toBe(false);
+  expect(wasAlreadyThere([], song({ id: "yt-a" }))).toBe(false);
 });

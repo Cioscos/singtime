@@ -106,3 +106,20 @@ def test_update_changes_only_the_given_fields(tmp_path):
     assert lib.get("yt-abc").stages["acquire"].status == "done"
     with pytest.raises(AttributeError):
         lib.update("yt-abc", campo_inesistente=1)
+
+
+@pytest.mark.parametrize("bad", ["..\\x", "../x", "a/b", "a.b", "", "con spazio", "C:x"])
+def test_ids_that_are_not_plain_names_are_rejected(tmp_path, bad):
+    lib = Library(tmp_path / "library")
+    assert lib.exists(bad) is False
+    with pytest.raises(SongNotFound):
+        lib.get(bad)
+    with pytest.raises(ValueError):
+        lib.create(make_meta(bad))
+
+
+def test_ids_used_by_the_app_are_accepted(tmp_path):
+    lib = Library(tmp_path)
+    for good in ("yt-DZHs-SRJbzU", "yt-a_b-1--mel-band", "file-0123456789ab"):
+        lib.create(make_meta(good))
+        assert lib.exists(good)

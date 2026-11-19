@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { addFile, addUrl, deleteSong, getSettings, getSystem, listSongs, retrySong } from "../lib/api";
   import { navigate } from "../lib/router";
-  import { formatDuration, songStatus } from "../lib/status";
+  import { formatDuration, songStatus, wasAlreadyThere } from "../lib/status";
   import { DIFFICULTY_LABEL, stageLabel, type Difficulty, type Song, type SystemInfo } from "../lib/types";
 
   let songs = $state<Song[]>([]);
@@ -11,6 +11,7 @@
   let url = $state("");
   let adding = $state(false);
   let addError = $state("");
+  let addNotice = $state("");
   let loadError = $state("");
   let dragging = $state(false);
   let loaded = $state(false);
@@ -40,8 +41,10 @@
   async function add(job: () => Promise<Song>) {
     adding = true;
     addError = "";
+    addNotice = "";
     try {
-      await job();
+      const added = await job();
+      if (wasAlreadyThere(songs, added)) addNotice = `"${added.title}" è già in libreria.`;
     } catch (error) {
       addError = (error as Error).message;
     } finally {
@@ -128,6 +131,9 @@
     {#if addError}
       <p class="error">{addError}</p>
     {/if}
+    {#if addNotice}
+      <p class="notice">{addNotice}</p>
+    {/if}
   </section>
 
   {#if loaded && songs.length === 0}
@@ -188,6 +194,7 @@
   .file { color: var(--accent); cursor: pointer; }
   .file input { display: none; }
   .hint { margin: 0.6rem 0 0; font-size: 0.9rem; }
+  .notice { color: var(--warn); margin: 0.6rem 0 0; }
   .empty { text-align: center; margin-top: 3rem; }
   .songs { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
   .song { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }

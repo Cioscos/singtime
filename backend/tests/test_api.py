@@ -15,6 +15,7 @@ from karaoke.pipeline.notes import NoteParams
 from karaoke.pipeline.runner import Pipeline
 
 NOOP_STAGES = {s: (lambda l, sid: None) for s in STAGES}
+LOCAL = "http://127.0.0.1:8765"
 
 
 def fake_probe(url):
@@ -29,7 +30,7 @@ def ctx(tmp_path, monkeypatch):
     lib = Library(tmp_path / "library")
     jobs = JobQueue(Pipeline(lib, NOOP_STAGES))
     jobs.start()
-    yield TestClient(create_app(lib, jobs, probe=fake_probe)), lib, jobs
+    yield TestClient(create_app(lib, jobs, probe=fake_probe), base_url=LOCAL), lib, jobs
     jobs.stop()
 
 
@@ -87,7 +88,7 @@ def test_startup_resets_interrupted_stages(tmp_path, monkeypatch):            # 
                         separator_model="m", pitch_tracker="swiftf0"))
     lib.set_stage("s", "separate", "running")
     jobs = JobQueue(Pipeline(lib, {}))
-    with TestClient(create_app(lib, jobs)) as c:
+    with TestClient(create_app(lib, jobs), base_url=LOCAL) as c:
         assert c.get("/api/songs/s").json()["stages"]["separate"]["status"] == "error"
 
 
@@ -172,7 +173,7 @@ def test_cannot_delete_while_processing(tmp_path, monkeypatch):
     gate = threading.Event()
     jobs = JobQueue(Pipeline(lib, {**NOOP_STAGES, "acquire": lambda l, sid: gate.wait(5)}))
     jobs.start()
-    c = TestClient(create_app(lib, jobs, probe=fake_probe))
+    c = TestClient(create_app(lib, jobs, probe=fake_probe), base_url=LOCAL)
     r = c.post("/api/songs/url", json={"url": "https://youtu.be/abc"})
     try:
         assert c.delete("/api/songs/yt-abc").status_code == 409 and lib.exists("yt-abc")
@@ -214,3 +215,51 @@ def test_apply_notes_rewrites_only_the_notes(ctx):
     assert lib.read_lyrics("yt-abc")[0].text == "corretto a mano"          # il testo non viene toccato
     too_strict = c.post("/api/songs/yt-abc/notes/apply", json=NoteParams(min_note_s=0.5).to_dict())
     assert too_strict.status_code == 400 and len(lib.read_notes("yt-abc")) == 6
+
+
+def test_song_ids_cannot_escape_the_library(ctx, tmp_path):
+    # Su Windows "..%5Cvittima" diventava un percorso fuori dalla libreria.
+    import json
+
+    c, lib, _ = ctx
+    victim = tmp_path / "vittima"
+    victim.mkdir()
+    meta = SongMeta(id="vittima", title="T", artist="A", duration_s=None, source_kind="file", source_ref="f",
+                    separator_model="m", pitch_tracker="swiftf0")
+    (victim / "meta.json").write_text(json.dumps(meta.to_dict()), encoding="utf-8")
+    for bad in ("..%5Cvittima", "..%2Fvittima", "a.b", "con%20spazio"):
+        assert c.get(f"/api/songs/{bad}").status_code == 404, bad
+        assert c.delete(f"/api/songs/{bad}").status_code == 404, bad
+        score = {"difficulty": "normal", "score": 1, "accuracy": 0.1, "stars": 0}
+        assert c.post(f"/api/songs/{bad}/scores", json=score).status_code == 404, bad
+    assert victim.is_dir() and not (victim / "scores.json").exists()
+
+
+def test_requests_from_other_sites_are_refused(ctx):
+    # Il server è solo per questa macchina: una pagina web qualsiasi non deve poterlo usare.
+    c, lib, _ = ctx
+    assert c.get("/api/songs", headers={"host": "malvagio.example"}).status_code == 403
+    r = c.post("/api/songs/url", json={"url": "https://youtu.be/abc"}, headers={"origin": "https://malvagio.example"})
+    assert r.status_code == 403 and lib.list() == []
+    assert c.get("/api/songs", headers={"origin": "http://127.0.0.1:8765"}).status_code == 200
+    assert c.get("/api/songs", headers={"origin": "http://localhost:5173"}).status_code == 200   # vite in sviluppo
+    assert c.get("/api/songs", headers={"host": "localhost:8765"}).status_code == 200
+
+
+def test_upload_longer_than_the_limit_is_rejected(ctx, tmp_path, monkeypatch):
+    # Il limite di durata vale per i file come per gli URL.
+    c, lib, _ = ctx
+    monkeypatch.setattr(config, "MAX_DURATION_S", 1)
+    wav = tmp_path / "lungo.wav"
+    sf.write(wav, np.zeros((44100 * 2, 2)), 44100)
+    r = c.post("/api/songs/file", files={"file": ("lungo.wav", wav.read_bytes(), "audio/wav")})
+    assert r.status_code == 400 and "troppo lungo" in r.json()["detail"] and lib.list() == []
+
+
+def test_note_params_have_sane_limits(ctx):
+    c, _, _ = ctx
+    body = NoteParams().to_dict()
+    assert "glide_window_s" in body
+    assert c.put("/api/note-params", json={**body, "vibrato_window_s": 5000}).status_code == 422
+    old_client = {k: v for k, v in body.items() if k != "glide_window_s"}       # parametri salvati prima di questa soglia
+    assert c.put("/api/note-params", json=old_client).json()["glide_window_s"] == NoteParams().glide_window_s

@@ -1,21 +1,29 @@
 import { expect, test } from "vitest";
 import { detectOnsets, estimateLatencyMs, onsetCorrection } from "./latency";
 
-test("estimateLatencyMs takes the median and ignores outliers", () => {
-  const clicks = [1, 1.6, 2.2, 2.8, 3.4];
-  expect(estimateLatencyMs(clicks, [1.12, 1.72, 2.32, 2.95, 3.52])).toBeCloseTo(120, 0);
+const CLICKS = [1, 1.6, 2.2, 2.8, 3.4, 4.0, 4.6, 5.2];
+
+test("estimateLatencyMs takes the median and tolerates a stray click", () => {
+  const onsets = CLICKS.map((c, i) => c + (i === 3 ? 0.15 : 0.12));
+  expect(estimateLatencyMs(CLICKS, onsets)).toBeCloseTo(120, 0);
 });
 
-test("estimateLatencyMs needs three matches", () => {
-  expect(estimateLatencyMs([1, 1.6, 2.2], [1.1, 1.7])).toBeNull();
-  expect(estimateLatencyMs([1, 1.6, 2.2], [1.9, 2.9, 3.9].map((x) => x + 5))).toBeNull();
+test("estimateLatencyMs needs five clicks that agree", () => {
+  expect(estimateLatencyMs(CLICKS, CLICKS.slice(0, 4).map((c) => c + 0.1))).toBeNull();
+  expect(estimateLatencyMs([1, 1.6, 2.2], [1.1, 1.7, 2.3])).toBeNull();
   expect(estimateLatencyMs([], [])).toBeNull();
 });
 
+test("estimateLatencyMs refuses delays that do not agree with each other", () => {
+  // rumori a caso (una cuffia che struscia, qualcuno che parla): ogni clic trova un "attacco", ma sparso
+  const scattered = [0.05, 0.31, 0.12, 0.44, 0.2, 0.38, 0.09, 0.27];
+  expect(estimateLatencyMs(CLICKS, CLICKS.map((c, i) => c + scattered[i]))).toBeNull();
+});
+
 test("estimateLatencyMs ignores sounds that are not answers to a click", () => {
-  const clicks = [1, 1.6, 2.2, 2.8];
-  // un rumore prima del primo clic e uno a metà strada non devono contare
-  expect(estimateLatencyMs(clicks, [0.4, 1.08, 1.68, 2.28, 2.75, 2.88])).toBeCloseTo(80, 0);
+  // un rumore prima del primo clic e uno fuori tempo non devono contare
+  const onsets = [0.4, ...CLICKS.map((c) => c + 0.08), 2.75].sort((a, b) => a - b);
+  expect(estimateLatencyMs(CLICKS, onsets)).toBeCloseTo(80, 0);
 });
 
 test("detectOnsets fires once per burst", () => {
