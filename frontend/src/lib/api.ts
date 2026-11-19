@@ -48,7 +48,7 @@ export function addFile(file: File): Promise<Song> {
 
 export const getSong = (id: string) => request<Song>(song(id));
 
-export type SongPatch = Partial<Pick<Song, "title" | "artist" | "language" | "lyrics_offset_s">>;
+export type SongPatch = Partial<Pick<Song, "title" | "artist" | "language" | "lyrics_offset_s" | "lyrics_choice">>;
 export const patchSong = (id: string, patch: SongPatch) => request<Song>(song(id), json("PATCH", patch));
 
 export const deleteSong = (id: string) => request<void>(song(id), { method: "DELETE" });

@@ -2,18 +2,33 @@
   import { onMount } from "svelte";
   import { getLyrics, getSong, patchSong, putLyrics, retrySong } from "../lib/api";
   import { debounced } from "../lib/debounce";
-  import { lyricsProblem } from "../lib/status";
-  import type { LyricLine, Song } from "../lib/types";
+  import { applyLabel, LYRICS_CHOICES, lyricsProblem } from "../lib/status";
+  import type { LyricLine, LyricsChoice, Song } from "../lib/types";
 
   let { id }: { id: string } = $props();
 
   const SOURCE_LABEL = { lrclib: "Da LRCLIB", whisper: "Trascritto dalla voce", none: "Nessun testo" } as const;
+
+  const HELP: Record<LyricsChoice, string> = {
+    auto: "Prima su LRCLIB: se il testo combacia con la voce uso quello, altrimenti trascrivo la voce.",
+    lrclib: "Il testo scritto dai volontari di LRCLIB, anche quando i tempi non combaciano con la voce. Servono artista e titolo giusti.",
+    whisper: "Trascrivo la voce isolata: tempi precisi, ma qualche parola può essere sbagliata o mancare.",
+    none: "Si gioca seguendo solo le barre.",
+  };
+  const LOSE = "le correzioni fatte a mano andranno perse. Continuo?";
+  const CONFIRM: Record<LyricsChoice, string> = {
+    auto: `Cerco di nuovo il testo: ${LOSE}`,
+    lrclib: `Prendo il testo da LRCLIB: ${LOSE}`,
+    whisper: `Trascrivo di nuovo la voce: ${LOSE}`,
+    none: `Tolgo il testo da questo brano: ${LOSE}`,
+  };
 
   let song = $state<Song | null>(null);
   let title = $state("");
   let artist = $state("");
   let language = $state("");
   let offset = $state(0);
+  let choice = $state<LyricsChoice>("auto");
   let lines = $state.raw<LyricLine[]>([]);
   let texts = $state<string[]>([]);
   let error = $state("");
@@ -50,6 +65,7 @@
   async function load() {
     try {
       show(await getSong(id));
+      choice = song?.lyrics_choice ?? "auto";
       await loadLyrics();
     } catch (e) {
       error = (e as Error).message;
@@ -89,12 +105,13 @@
   }, 300);
   const onOffset = () => savingOffset.schedule();
 
-  async function searchAgain() {
-    if (!confirm("Cerco di nuovo il testo: le correzioni fatte a mano andranno perse. Continuo?")) return;
+  async function applySource() {
+    if (lines.length > 0 && !confirm(CONFIRM[choice])) return;
     if (dataChanged && !(await saveData())) return;
     try {
       searching = true;
       notice = "";
+      show(await patchSong(id, { lyrics_choice: choice }));
       await retrySong(id, "lyrics");
       poll();
     } catch (e) {
@@ -111,9 +128,13 @@
         if (current.queue_position !== null) return poll();
         show(current);
         await loadLyrics();
-        if (lyricsProblem(current)) notice = "";      // il motivo compare accanto all'origine
+        if (lyricsProblem(current) || current.lyrics_note) notice = "";      // il motivo compare accanto all'origine
+        else if (current.lyrics_choice === "none") notice = "Testo tolto.";
         else if (current.lyrics_source === "none") notice = "Nessun testo trovato.";
-        else notice = `Testo aggiornato: ${SOURCE_LABEL[current.lyrics_source ?? "none"].toLowerCase()}.`;
+        else {
+          const label = SOURCE_LABEL[current.lyrics_source ?? "none"];
+          notice = `Testo aggiornato: ${label[0].toLowerCase()}${label.slice(1)}.`;   // "da LRCLIB", non "da lrclib"
+        }
       } catch (e) {
         error = (e as Error).message;
       }
@@ -158,14 +179,24 @@
 
     <section class="panel">
       <h2>Testo</h2>
-      <div class="row source">
-        <span>Origine: <strong>{SOURCE_LABEL[song.lyrics_source ?? "none"]}</strong></span>
-        <button onclick={searchAgain} disabled={searching}>{searching ? "Cerco…" : "Cerca di nuovo il testo"}</button>
-      </div>
+      <p>Origine: <strong>{SOURCE_LABEL[song.lyrics_source ?? "none"]}</strong></p>
       {#if lyricsProblem(song) && !searching}
         <p class="error problem">L'ultima ricerca del testo non è riuscita: {lyricsProblem(song)}.</p>
+      {:else if song.lyrics_note && !searching}
+        <p class="muted lyrics-note">{song.lyrics_note}.</p>
       {/if}
-      <p class="muted">Dopo aver corretto artista, titolo o lingua, cerca di nuovo: prima su LRCLIB, poi trascrivendo la voce.</p>
+      <div class="row source">
+        <label>
+          Fonte del testo
+          <select bind:value={choice} disabled={searching}>
+            {#each LYRICS_CHOICES as option (option.value)}
+              <option value={option.value}>{option.label}</option>
+            {/each}
+          </select>
+        </label>
+        <button onclick={applySource} disabled={searching}>{searching ? "Cerco…" : applyLabel(choice)}</button>
+      </div>
+      <p class="muted">{HELP[choice]}</p>
 
       <label class="offset">
         Sposta tutto il testo
@@ -199,7 +230,8 @@
   .fields { display: grid; gap: 0.7rem; margin-bottom: 1rem; }
   .fields label { display: grid; grid-template-columns: 80px minmax(200px, 420px) 1fr; align-items: center; gap: 0.75rem; }
   .fields .short { width: 80px; }
-  .source { justify-content: space-between; }
+  .source { gap: 0.75rem; margin: 0.6rem 0 0.4rem; }
+  .source label { display: flex; align-items: center; gap: 0.6rem; }
   .offset { display: flex; align-items: center; gap: 0.75rem; margin: 1rem 0; flex-wrap: wrap; }
   .offset input { width: 320px; accent-color: var(--accent); }
   .offset output { font-variant-numeric: tabular-nums; min-width: 4.5rem; }

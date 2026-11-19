@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { formatDuration, songStatus, wasAlreadyThere } from "./status";
-import type { Song, Stage, StageState } from "./types";
+import { applyLabel, formatDuration, LYRICS_CHOICES, songStatus, wasAlreadyThere } from "./status";
+import type { LyricsChoice, Song, Stage, StageState } from "./types";
 
 const stages = (over: Partial<Record<Stage, Partial<StageState>>>): Record<Stage, StageState> => {
   const out = {} as Record<Stage, StageState>;
@@ -11,7 +11,7 @@ const stages = (over: Partial<Record<Stage, Partial<StageState>>>): Record<Stage
 const song = (over: Partial<Song>): Song => ({
   id: "x", title: "T", artist: "A", duration_s: 200, source_kind: "youtube", source_ref: "u",
   separator_model: "m", pitch_tracker: "swiftf0", language: null, language_user: false,
-  lyrics_source: null, lyrics_offset_s: 0, created_at: "", stages: stages({}), playable: false,
+  lyrics_source: null, lyrics_choice: "auto", lyrics_note: null, lyrics_offset_s: 0, created_at: "", stages: stages({}), playable: false,
   queue_position: null, scores: {}, ...over,
 });
 const done = { status: "done" as const };
@@ -61,4 +61,18 @@ test("a playable song whose lyrics search broke says why", () => {
   expect(lyricsProblem(broken)).toBe("Trascrizione non riuscita (memoria esaurita)");
   expect(lyricsProblem(song({ playable: true, stages: stages({ ...playable, lyrics: done }) }))).toBeNull();
   expect(lyricsProblem(song({ playable: true, stages: stages({ ...playable, lyrics: { status: "error" } }) }))).toBe("Errore");
+});
+
+test("the lyrics sources are offered in a fixed order, the automatic one first", () => {
+  expect(LYRICS_CHOICES).toEqual([
+    { value: "auto", label: "Automatica" },
+    { value: "lrclib", label: "LRCLIB" },
+    { value: "whisper", label: "Trascrizione dalla voce" },
+    { value: "none", label: "Nessun testo" },
+  ]);
+});
+
+test("the button says what applying the chosen source will do", () => {
+  expect(applyLabel("none")).toBe("Togli il testo");
+  expect(["auto", "lrclib", "whisper"].map((c) => applyLabel(c as LyricsChoice))).toEqual(Array(3).fill("Cerca il testo"));
 });

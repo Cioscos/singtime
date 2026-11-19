@@ -23,6 +23,9 @@ export interface ScoreRecord {
   date: string;
 }
 
+/** Da dove chi gioca vuole il testo; "auto" lascia decidere al confronto con la voce. */
+export type LyricsChoice = "auto" | "lrclib" | "whisper" | "none";
+
 export interface Song {
   id: string;
   title: string;
@@ -35,6 +38,8 @@ export interface Song {
   language: string | null;
   language_user: boolean;
   lyrics_source: "lrclib" | "whisper" | "none" | null;
+  lyrics_choice: LyricsChoice;
+  lyrics_note: string | null;
   lyrics_offset_s: number;
   created_at: string;
   stages: Record<Stage, StageState>;

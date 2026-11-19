@@ -1,4 +1,4 @@
-import { STAGES, type Song, type Stage } from "./types";
+import { STAGES, type LyricsChoice, type Song, type Stage } from "./types";
 
 export type SongStatus =
   | { kind: "ready" }
@@ -30,6 +30,19 @@ export function songStatus(song: Song): SongStatus {
 export function lyricsProblem(song: Song): string | null {
   const state = song.stages.lyrics;
   return state.status === "error" ? state.error ?? "Errore" : null;
+}
+
+/** Le fonti del testo tra cui si sceglie in Modifica, nell'ordine in cui si mostrano. */
+export const LYRICS_CHOICES: { value: LyricsChoice; label: string }[] = [
+  { value: "auto", label: "Automatica" },
+  { value: "lrclib", label: "LRCLIB" },
+  { value: "whisper", label: "Trascrizione dalla voce" },
+  { value: "none", label: "Nessun testo" },
+];
+
+/** Che cosa succede applicando la fonte scelta. */
+export function applyLabel(choice: LyricsChoice): string {
+  return choice === "none" ? "Togli il testo" : "Cerca il testo";
 }
 
 /** Vero se il brano appena "aggiunto" c'era già: il server restituisce quello esistente. */
