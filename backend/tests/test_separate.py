@@ -71,3 +71,45 @@ def test_missing_vocals_is_an_error(tmp_path):
     FakeSeparator.stems = ["s_(Drums).flac", "s_(Bass).flac"]
     with pytest.raises(RuntimeError, match="traccia voce"):
         separate(tmp_path / "source.flac", tmp_path, "m.ckpt", tmp_path / "models", separator_factory=FakeSeparator)
+
+
+def test_model_download_is_reported_as_a_percentage(tmp_path):
+    """Mentre carica il modello, il separatore scarica i pesi con una barra tqdm: la si ascolta."""
+    import types
+
+    class Bar:
+        def __init__(self, *a, total=None, **kw):
+            self.total, self.n = total, 0
+
+        def update(self, n=1):
+            self.n += n
+
+        def close(self):
+            pass
+
+    library = types.SimpleNamespace(tqdm=Bar)
+
+    class Downloading(FakeSeparator):
+        def load_model(self, model_filename):
+            bar = library.tqdm(total=1000, unit="iB", unit_scale=True)
+            bar.update(250)
+            bar.update(750)
+            bar.close()
+
+    FakeSeparator.stems = ["s_(Vocals).flac", "s_(Instrumental).flac"]
+    seen = []
+    separate(tmp_path / "source.flac", tmp_path, "m.ckpt", tmp_path / "models",
+             on_detail=seen.append, separator_factory=Downloading, download_module=library)
+    assert seen == ["Scarico il modello (solo la prima volta)…", "Scarico il modello: 25%", "Scarico il modello: 100%"]
+    assert library.tqdm is Bar                                   # rimesso a posto alla fine
+
+
+@pytest.mark.slow
+def test_audio_separator_still_downloads_through_tqdm():
+    """Guardia: se la libreria cambia modo di scaricare, la percentuale sparirebbe in silenzio."""
+    import inspect
+
+    import audio_separator.separator.separator as library
+
+    assert "tqdm(" in inspect.getsource(library.Separator.download_file_if_not_exists)
+    assert hasattr(library, "tqdm")

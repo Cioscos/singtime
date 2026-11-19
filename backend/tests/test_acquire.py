@@ -132,3 +132,18 @@ def test_download_options_avoid_youtube_throttling(tmp_path):
     assert options["noplaylist"] is True and options["format"] == "bestaudio/best"
     assert options["socket_timeout"] <= 30 and options["retries"] >= 3
     assert options["outtmpl"].startswith(str(tmp_path))
+
+
+@pytest.mark.parametrize("url", [
+    "youtu.be/DZHs-SRJbzU",
+    "www.youtube.com/watch?v=DZHs-SRJbzU",
+    "youtube.com/watch?v=DZHs-SRJbzU&list=PL1",
+    "  music.youtube.com/watch?v=DZHs-SRJbzU  ",
+])
+def test_youtube_id_accepts_links_without_scheme(url):
+    assert youtube_id(url) == "DZHs-SRJbzU"
+
+
+@pytest.mark.parametrize("url", ["esempio.com/watch?v=DZHs-SRJbzU", "DZHs-SRJbzU", "ftp://youtu.be/DZHs-SRJbzU", ""])
+def test_youtube_id_still_rejects_other_things(url):
+    assert youtube_id(url) is None

@@ -3,6 +3,7 @@ import pytest
 
 from karaoke.models import LyricLine, Note, SongMeta, Word
 from karaoke.pipeline.lyrics import (
+    LyricsError,
     fetch_lrclib, find_lyrics, lines_from_lrc, lines_from_words, parse_lrc,
 )
 
@@ -131,11 +132,32 @@ def test_find_without_artist_skips_lrclib(tmp_path):
     assert src == "whisper"
 
 
-def test_find_survives_a_transcription_crash(tmp_path):
+def test_a_transcription_crash_says_why(tmp_path):
     def boom(vocals, language):
-        raise RuntimeError("libreria CUDA mancante")
-    lines, src, lang = find_lyrics(meta(), tmp_path / "v.flac", [], fetch=lambda *a, **k: None, transcribe_fn=boom)
-    assert (lines, src, lang) == ([], "none", None)
+        raise RuntimeError("libreria CUDA mancante\n  dettagli interni")
+    with pytest.raises(LyricsError, match=r"^Trascrizione non riuscita \(libreria CUDA mancante\)$"):
+        find_lyrics(meta(), tmp_path / "v.flac", [], fetch=lambda *a, **k: None, transcribe_fn=boom)
+
+
+@pytest.mark.parametrize("exact, search", [
+    ([1, 2], []),                                                        # un elenco dove ci si aspetta un oggetto
+    ({"syncedLyrics": 5, "duration": 200}, {"error": "manutenzione"}),   # testo non testuale, ricerca non in elenco
+    ({"syncedLyrics": "[00:01.00]a", "duration": "200"}, "ciao"),        # durata scritta come testo
+    (None, [None, "riga", 7, {"syncedLyrics": "[00:01.00]a", "duration": "duecento"}]),
+])
+def test_fetch_survives_unexpected_shapes(exact, search):
+    def handler(req):
+        return httpx.Response(200, json=exact if req.url.path == "/api/get" else search)
+    assert fetch_lrclib("A", "T", 200.0, client=lrclib(handler)) is None
+
+
+def test_fetch_skips_malformed_candidates_and_keeps_the_good_one():
+    def handler(req):
+        if req.url.path == "/api/get":
+            return httpx.Response(404, json={})
+        return httpx.Response(200, json=[None, {"syncedLyrics": ["x"], "duration": 200},
+                                         {"syncedLyrics": "[00:01.00]buona", "duration": 201}])
+    assert fetch_lrclib("A", "T", 200.0, client=lrclib(handler)) == "[00:01.00]buona"
 
 
 def test_transcribe_decodes_the_audio_itself(tmp_path, monkeypatch):
@@ -157,6 +179,6 @@ def test_transcribe_decodes_the_audio_itself(tmp_path, monkeypatch):
             segment = SimpleNamespace(words=[SimpleNamespace(start=0.0, end=0.5, word=" ciao")])
             return iter([segment]), SimpleNamespace(language="it")
 
-    monkeypatch.setattr(lyrics, "_load_whisper", lambda: FakeModel())
+    monkeypatch.setattr(lyrics, "_load_whisper", lambda *a: FakeModel())
     lines, language = lyrics.transcribe(tmp_path / "v.flac", "it")
     assert lines[0].text == "ciao" and language == "it"

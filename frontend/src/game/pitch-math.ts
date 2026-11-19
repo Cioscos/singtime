@@ -8,6 +8,15 @@ export const MIN_RMS = 0.01;
 export const MIN_HZ = 70;
 export const MAX_HZ = 1100;
 
+/** Il volume più basso che l'indicatore mostra, in decibel. */
+const METER_FLOOR_DB = -60;
+
+/** Il volume (RMS) come posizione da 0 a 1 su una scala in decibel, per l'indicatore del microfono. */
+export function meterLevel(rms: number): number {
+  if (!(rms > 0)) return 0;
+  return Math.min(1, Math.max(0, 1 - (20 * Math.log10(rms)) / METER_FLOOR_DB));
+}
+
 export function hzToMidi(hz: number): number {
   return 69 + 12 * Math.log2(hz / 440);
 }

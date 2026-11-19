@@ -51,3 +51,14 @@ test("adding a song that is already in the library is noticed", () => {
   expect(wasAlreadyThere(library, song({ id: "yt-c" }))).toBe(false);
   expect(wasAlreadyThere([], song({ id: "yt-a" }))).toBe(false);
 });
+
+import { lyricsProblem } from "./status";
+
+test("a playable song whose lyrics search broke says why", () => {
+  const playable = { acquire: done, separate: done, pitch: done, notes: done };
+  const broken = song({ playable: true, stages: stages({ ...playable, lyrics: { status: "error", error: "Trascrizione non riuscita (memoria esaurita)" } }) });
+  expect(songStatus(broken)).toEqual({ kind: "ready" });          // si gioca comunque
+  expect(lyricsProblem(broken)).toBe("Trascrizione non riuscita (memoria esaurita)");
+  expect(lyricsProblem(song({ playable: true, stages: stages({ ...playable, lyrics: done }) }))).toBeNull();
+  expect(lyricsProblem(song({ playable: true, stages: stages({ ...playable, lyrics: { status: "error" } }) }))).toBe("Errore");
+});

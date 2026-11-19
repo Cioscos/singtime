@@ -5,15 +5,18 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Generator
 
 import numpy as np
 import soundfile as sf
 
 from ..library import INSTRUMENTAL, VOCALS
+from .progress import ByteProgress, reporting_bar
 
 MODEL_DOWNLOAD_NOTICE = "Scarico il modello (solo la prima volta)…"
+MODEL_DOWNLOAD_LABEL = "Scarico il modello"
 
 _STEM_LABEL = re.compile(r"\(([^)]+)\)")
 # Un separatore già caricato per modello: i brani successivi non ricaricano i pesi.
@@ -35,6 +38,27 @@ def _real_separator(**kwargs: Any) -> Any:
     return Separator(log_level=logging.WARNING, **kwargs)
 
 
+def _download_module() -> Any:
+    """Il modulo di audio-separator che scarica i pesi mostrando una barra tqdm."""
+    import audio_separator.separator.separator as module
+
+    return module
+
+
+@contextmanager
+def _reporting_downloads(module: Any, on_detail: Callable[[str], None]) -> Generator[None]:
+    """Finché dura il blocco, le barre di download della libreria riferiscono la percentuale."""
+    original = getattr(module, "tqdm", None)
+    if original is None:           # la libreria ha cambiato modo di scaricare: resta l'avviso fisso
+        yield
+        return
+    module.tqdm = reporting_bar(original, ByteProgress(on_detail, MODEL_DOWNLOAD_LABEL))
+    try:
+        yield
+    finally:
+        module.tqdm = original
+
+
 def _stem_label(name: str) -> str:
     labels = _STEM_LABEL.findall(Path(name).name)
     return labels[-1].strip().lower() if labels else ""
@@ -42,14 +66,16 @@ def _stem_label(name: str) -> str:
 
 def separate(source: Path, out_dir: Path, model_filename: str, models_dir: Path,
              on_detail: Callable[[str], None] | None = None,
-             separator_factory: Callable[..., Any] | None = None) -> None:
+             separator_factory: Callable[..., Any] | None = None,
+             download_module: Any = None) -> None:
     """Scrive in `out_dir` la traccia voce e la base; non lascia altri file."""
     models_dir.mkdir(parents=True, exist_ok=True)
     scratch = models_dir / "_scratch"
     shutil.rmtree(scratch, ignore_errors=True)
     scratch.mkdir(parents=True)
 
-    if on_detail is not None and not (models_dir / model_filename).exists():
+    downloading = on_detail is not None and not (models_dir / model_filename).exists()
+    if on_detail is not None and downloading:
         on_detail(MODEL_DOWNLOAD_NOTICE)
 
     key = (str(models_dir), model_filename)
@@ -57,7 +83,11 @@ def separate(source: Path, out_dir: Path, model_filename: str, models_dir: Path,
     if separator is None:
         factory = separator_factory or _real_separator
         separator = factory(output_dir=str(scratch), model_file_dir=str(models_dir), output_format="FLAC")
-        separator.load_model(model_filename=model_filename)
+        if on_detail is not None and downloading and (separator_factory is None or download_module is not None):
+            with _reporting_downloads(download_module or _download_module(), on_detail):
+                separator.load_model(model_filename=model_filename)
+        else:
+            separator.load_model(model_filename=model_filename)
         if separator_factory is None:
             _loaded[key] = separator
 

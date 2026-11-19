@@ -23,7 +23,8 @@ export interface FrameState {
   multiplier: number;
   /** Avanzamento del brano, da 0 a 1. */
   progress: number;
-  line: { text: string; sung: number } | null;
+  /** La riga di testo: quota già cantata e, se si sa, i caratteri [da, a) della parola in corso. */
+  line: { text: string; sung: number; word: [number, number] | null } | null;
   nextLine: string | null;
 }
 
@@ -37,6 +38,7 @@ const COLORS = {
   voice: "#ffd166",
   nowLine: "#ffffff",
   text: "#ffffff",
+  textSung: "#3ddc97",
   textRest: "#8a93ab",
   textNext: "#55607a",
   track: "#2a2e3d",
@@ -182,11 +184,26 @@ export function drawFrame(g: CanvasRenderingContext2D, s: FrameState): void {
     g.scale(scale, scale);
     g.fillStyle = COLORS.textRest;
     g.fillText(s.line.text, 0, 0);
-    g.beginPath();
-    g.rect(0, -40, textWidth * Math.min(1, Math.max(0, s.line.sung)), 60);
-    g.clip();
-    g.fillStyle = COLORS.hit;
-    g.fillText(s.line.text, 0, 0);
+    // Cantato in verde, parola in corso bianca: si ridisegna la riga ritagliandone i due tratti.
+    const text = s.line.text;
+    const widthUntil = (chars: number) => g.measureText(text.slice(0, chars)).width;
+    const paint = (from: number, to: number, color: string) => {
+      if (to <= from) return;
+      g.save();
+      g.beginPath();
+      g.rect(from, -40, to - from, 60);
+      g.clip();
+      g.fillStyle = color;
+      g.fillText(text, 0, 0);
+      g.restore();
+    };
+    if (s.line.word) {
+      const [from, to] = s.line.word;
+      paint(0, widthUntil(from), COLORS.textSung);
+      paint(widthUntil(from), widthUntil(to), COLORS.text);
+    } else {
+      paint(0, textWidth * Math.min(1, Math.max(0, s.line.sung)), COLORS.textSung);
+    }
     g.restore();
   }
   if (s.nextLine) {

@@ -1,6 +1,7 @@
 // Il risultato dell'ultima partita passa dalla schermata di gioco a quella del
-// risultato tramite sessionStorage, e viene letto una volta sola: ricaricare la
-// pagina del risultato non deve inviare di nuovo il punteggio.
+// risultato tramite sessionStorage. Si toglie solo dopo che il server l'ha
+// salvato: così ricaricare la pagina non lo invia di nuovo, e un invio fallito
+// non lo fa perdere.
 
 import type { Difficulty, ScoreRecord } from "./types";
 
@@ -28,8 +29,11 @@ function isValid(value: unknown): value is LastResult {
   );
 }
 
-/** Il risultato in attesa per questo brano, se c'è; lo toglie dallo storage. */
-export function takeLastResult(storage: Store, songId: string): LastResult | null {
+/**
+ * Il risultato in attesa per questo brano, se c'è. Resta nello storage finché
+ * non lo si toglie con `clearLastResult`, cioè dopo che il server l'ha salvato.
+ */
+export function readLastResult(storage: Store, songId: string): LastResult | null {
   const raw = storage.getItem(KEY);
   if (raw === null) return null;
   let parsed: unknown;
@@ -42,9 +46,11 @@ export function takeLastResult(storage: Store, songId: string): LastResult | nul
     storage.removeItem(KEY);
     return null;
   }
-  if (parsed.songId !== songId) return null;
+  return parsed.songId === songId ? parsed : null;
+}
+
+export function clearLastResult(storage: Store): void {
   storage.removeItem(KEY);
-  return parsed;
 }
 
 export function isNewRecord(score: number, previous: ScoreRecord | undefined): boolean {

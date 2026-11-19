@@ -44,3 +44,12 @@ test("onsetCorrection accounts for the analysis window", () => {
   // un suono improvviso compare quando entra in coda alla finestra, il cui centro è più indietro
   expect(onsetCorrection(48000)).toBeCloseTo((2048 - 512) / 2 / 48000);
 });
+
+import { declaredLatencyMs } from "./latency";
+
+test("declaredLatencyMs adds what output and input declare", () => {
+  expect(declaredLatencyMs({ outputLatency: 0.04, baseLatency: 0.01 }, 0.02)).toBeCloseTo(60);
+  expect(declaredLatencyMs({ outputLatency: 0, baseLatency: 0.01 }, undefined)).toBeCloseTo(10);   // uscita non dichiarata
+  expect(declaredLatencyMs({}, NaN)).toBe(0);
+  expect(declaredLatencyMs({ outputLatency: 5 }, 5)).toBe(500);                                    // valori assurdi: tetto
+});

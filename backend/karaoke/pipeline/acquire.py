@@ -37,9 +37,14 @@ _YT_PATH_PREFIXES = ("/shorts/", "/embed/", "/live/")
 
 def youtube_id(url: str) -> str | None:
     """L'identificativo del video, qualunque sia la forma dell'URL; None se non è YouTube."""
+    url = url.strip()
+    if "://" not in url:
+        url = "https://" + url          # incollato senza "https://": capita spesso
     try:
-        parsed = urlparse(url.strip())
+        parsed = urlparse(url)
     except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https"):
         return None
     host = (parsed.hostname or "").lower()
     candidate: str | None = None

@@ -124,3 +124,18 @@ def test_fast_melody_keeps_every_note(hop):
     pitches = [60, 62, 64, 62, 60, 65, 64, 62]
     notes = segment_notes(curve([(0.16, flat(p)) for p in pitches], hop))
     assert [round(n.pitch) for n in notes] == pitches
+
+
+def test_note_params_are_written_atomically(tmp_path, monkeypatch):
+    from karaoke.pipeline.notes import load_note_params, save_note_params
+
+    monkeypatch.setenv("KARAOKE_DATA_DIR", str(tmp_path))
+    save_note_params(NoteParams(min_note_s=0.2))
+
+    def refuse(src, dst):
+        raise OSError("disco pieno")
+
+    monkeypatch.setattr("karaoke.fileio.os.replace", refuse)
+    with pytest.raises(OSError):
+        save_note_params(NoteParams(min_note_s=0.9))
+    assert load_note_params().min_note_s == 0.2

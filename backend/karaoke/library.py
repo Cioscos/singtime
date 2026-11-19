@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import math
-import os
 import re
 import shutil
 import threading
@@ -15,6 +13,7 @@ from typing import Any
 
 import numpy as np
 
+from .fileio import read_json as _read_json, write_json as _write_json
 from .models import LyricLine, Note, PitchCurve, SongMeta, StageState, Word
 
 META = "meta.json"
@@ -40,17 +39,6 @@ class SongExists(Exception):
 
 class SongNotFound(Exception):
     pass
-
-
-def _write_json(path: Path, data: Any) -> None:
-    """Scrittura atomica: un file a metà non deve mai sostituire quello buono."""
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, path)
-
-
-def _read_json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def notes_to_dict(notes: list[Note]) -> dict[str, Any]:

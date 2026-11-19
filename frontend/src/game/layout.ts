@@ -15,12 +15,36 @@ export interface PitchRange {
   max: number;
 }
 
-/** Intervallo verticale adattato all'estensione del brano, in semitoni. */
+/** Quota del tempo cantato che si può ignorare a ciascun estremo per trovare il "grosso" del brano. */
+const BULK_TAIL = 0.02;
+/** Una barra più lontana di così dal grosso del brano è una svista del rilevatore (di solito un'ottava). */
+const OUTLIER_SEMITONES = 7;
+
+/** L'altezza sotto cui sta la quota `fraction` del tempo cantato; `sorted` è ordinato per altezza. */
+function pitchAt(sorted: Note[], fraction: number): number {
+  const total = sorted.reduce((sum, note) => sum + note.duration, 0);
+  let sung = 0;
+  for (const note of sorted) {
+    sung += note.duration;
+    if (sung >= total * fraction - 1e-9) return note.pitch;
+  }
+  return sorted[sorted.length - 1].pitch;
+}
+
+/**
+ * Intervallo verticale adattato all'estensione del brano, in semitoni.
+ * Le barre isolate molto lontane dal resto non lo allargano: schiaccerebbero
+ * tutte le altre, e si disegnano comunque sul bordo.
+ */
 export function pitchRange(notes: Note[]): PitchRange {
   if (notes.length === 0) return { min: 54, max: 66 };
+  const sorted = [...notes].sort((a, b) => a.pitch - b.pitch);
+  const lowLimit = pitchAt(sorted, BULK_TAIL) - OUTLIER_SEMITONES;
+  const highLimit = pitchAt(sorted, 1 - BULK_TAIL) + OUTLIER_SEMITONES;
   let low = Infinity;
   let high = -Infinity;
   for (const note of notes) {
+    if (note.pitch < lowLimit || note.pitch > highLimit) continue;
     if (note.pitch < low) low = note.pitch;
     if (note.pitch > high) high = note.pitch;
   }

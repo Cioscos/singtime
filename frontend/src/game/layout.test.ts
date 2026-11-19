@@ -46,3 +46,16 @@ test("targetNote is the note being sung, or the nearest one in time", () => {
   expect(targetNote(notes, 50)?.pitch).toBe(67);       // dopo la fine: l'ultima
   expect(targetNote([], 1)).toBeNull();
 });
+
+const bulk = () => Array.from({ length: 104 }, (_, i) => ({ start: i, duration: 0.5, pitch: 55 + (i % 13) }));   // da 55 a 67
+
+test("pitchRange is not stretched by a stray note an octave off", () => {
+  // un errore di ottava del rilevatore non deve schiacciare tutte le altre barre
+  expect(pitchRange([...bulk(), { start: 200, duration: 0.2, pitch: 91 }])).toEqual({ min: 52, max: 70 });
+  expect(pitchRange([{ start: -5, duration: 0.2, pitch: 31 }, ...bulk()])).toEqual({ min: 52, max: 70 });
+});
+
+test("pitchRange keeps a real high note close to the rest", () => {
+  // l'acuto del ritornello, una volta sola e breve, fa parte del brano
+  expect(pitchRange([...bulk(), { start: 200, duration: 0.2, pitch: 73 }])).toEqual({ min: 52, max: 76 });
+});

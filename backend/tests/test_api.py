@@ -263,3 +263,25 @@ def test_note_params_have_sane_limits(ctx):
     assert c.put("/api/note-params", json={**body, "vibrato_window_s": 5000}).status_code == 422
     old_client = {k: v for k, v in body.items() if k != "glide_window_s"}       # parametri salvati prima di questa soglia
     assert c.put("/api/note-params", json=old_client).json()["glide_window_s"] == NoteParams().glide_window_s
+
+
+def test_saving_other_fields_keeps_the_detected_language(ctx):
+    c, lib, jobs = ctx
+    add_song(c, jobs)
+    lib.update("yt-abc", language="en")                      # rilevata da Whisper, non scelta a mano
+    r = c.patch("/api/songs/yt-abc", json={"title": "Nuovo", "artist": "Artista", "language": None})
+    assert r.json()["title"] == "Nuovo"
+    assert r.json()["language"] == "en" and r.json()["language_user"] is False
+
+
+def test_settings_are_written_atomically(ctx, monkeypatch):
+    c, _, _ = ctx
+    saved = c.put("/api/settings", json={**c.get("/api/settings").json(), "latency_ms": 80}).json()
+
+    def refuse(src, dst):
+        raise OSError("disco pieno")
+
+    monkeypatch.setattr("karaoke.fileio.os.replace", refuse)
+    with pytest.raises(OSError):
+        c.put("/api/settings", json={**saved, "latency_ms": 999})
+    assert c.get("/api/settings").json()["latency_ms"] == 80

@@ -2,7 +2,8 @@
   import { onMount } from "svelte";
   import { SongPlayer } from "../game/audio";
   import { pitchRange, targetNote, type PitchRange } from "../game/layout";
-  import { lineAt, sungFraction } from "../game/lyrics-progress";
+  import { declaredLatencyMs } from "../game/latency";
+  import { lineAt, sungFraction, wordSpan } from "../game/lyrics-progress";
   import { Mic, MicDeniedError, type PitchReading } from "../game/mic";
   import { foldToOctave } from "../game/pitch-math";
   import { drawFrame } from "../game/render";
@@ -127,6 +128,8 @@
   // Il punteggio è guidato dalle letture del microfono, mai dai fotogrammi.
   function onReading(reading: PitchReading) {
     if (!player || !player.playing) return;
+    // Senza taratura vale il ritardo che il sistema dichiara: si legge qui perché compare ad audio avviato.
+    if (ctx && settings && !settings.calibrated) latencyS = declaredLatencyMs(ctx, mic?.inputLatency) / 1000;
     const t = player.timeAt(reading.t) - latencyS;
     keeper.feed(t, reading.midi);
     if (reading.midi === null) {
@@ -274,7 +277,9 @@
       score: keeper.score,
       multiplier: keeper.multiplier,
       progress: player ? now / player.duration : 0,
-      line: current >= 0 ? { text: lines[current].text, sung: sungFraction(lines[current], now) } : null,
+      line: current >= 0
+        ? { text: lines[current].text, sung: sungFraction(lines[current], now), word: wordSpan(lines[current], now) }
+        : null,
       nextLine: next >= 0 ? lines[next].text : null,
     });
   }
@@ -312,6 +317,7 @@
       <div class="panel box">
         <h2>Ritardo del microfono non ancora tarato</h2>
         <p class="muted">Senza taratura il punteggio può risultare in anticipo o in ritardo rispetto alla tua voce. Ci vuole meno di un minuto.</p>
+        <p class="muted">Se giochi lo stesso uso il ritardo che dichiara il sistema: è solo una stima.</p>
         <div class="row">
           <button class="primary" onclick={() => navigate({ name: "calibration" })}>Tara ora</button>
           <button onclick={prepare}>Gioca lo stesso</button>

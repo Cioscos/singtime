@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { isNewRecord, saveLastResult, takeLastResult, type LastResult } from "./last-result";
+import { clearLastResult, isNewRecord, readLastResult, saveLastResult, type LastResult } from "./last-result";
 
 function memoryStorage() {
   const data = new Map<string, string>();
@@ -11,26 +11,29 @@ function memoryStorage() {
 }
 const result: LastResult = { songId: "yt-a", difficulty: "normal", score: 1200, accuracy: 0.8, stars: 4 };
 
-test("a result is handed over exactly once", () => {
+test("a result stays until it has been saved for good", () => {
+  // se l'invio al server fallisce, il punteggio deve essere ancora lì per riprovare
   const storage = memoryStorage();
   saveLastResult(storage, result);
-  expect(takeLastResult(storage, "yt-a")).toEqual(result);
-  expect(takeLastResult(storage, "yt-a")).toBeNull();        // ricaricando la pagina non si reinvia
+  expect(readLastResult(storage, "yt-a")).toEqual(result);
+  expect(readLastResult(storage, "yt-a")).toEqual(result);
+  clearLastResult(storage);
+  expect(readLastResult(storage, "yt-a")).toBeNull();        // ricaricando la pagina non si reinvia
 });
 
-test("a result of another song is not taken", () => {
+test("a result of another song is not read", () => {
   const storage = memoryStorage();
   saveLastResult(storage, result);
-  expect(takeLastResult(storage, "yt-b")).toBeNull();
-  expect(takeLastResult(storage, "yt-a")).toEqual(result);
+  expect(readLastResult(storage, "yt-b")).toBeNull();
+  expect(readLastResult(storage, "yt-a")).toEqual(result);
 });
 
 test("garbage in the storage is ignored and cleaned", () => {
   const storage = memoryStorage();
   storage.setItem("lastResult", "{non è json");
-  expect(takeLastResult(storage, "yt-a")).toBeNull();
+  expect(readLastResult(storage, "yt-a")).toBeNull();
   storage.setItem("lastResult", JSON.stringify({ songId: "yt-a", score: "tanto" }));
-  expect(takeLastResult(storage, "yt-a")).toBeNull();
+  expect(readLastResult(storage, "yt-a")).toBeNull();
   expect(storage.getItem("lastResult")).toBeNull();
 });
 

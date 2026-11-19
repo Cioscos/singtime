@@ -49,6 +49,23 @@ export function estimateLatencyMs(clickTimes: number[], onsetTimes: number[]): n
   return median(agreeing) * 1000;
 }
 
+/** Oltre questo valore un ritardo dichiarato non è credibile. */
+const MAX_DECLARED_MS = 500;
+
+/**
+ * Senza taratura: il ritardo che il browser dichiara per l'uscita e per il
+ * microfono. È una stima (con il Bluetooth spesso è troppo bassa), ma è meglio
+ * che giudicare la voce come se il ritardo fosse zero.
+ */
+export function declaredLatencyMs(
+  output: { outputLatency?: number; baseLatency?: number },
+  inputLatencyS: number | undefined,
+): number {
+  const usable = (value: number | undefined) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+  const out = usable(output.outputLatency) || usable(output.baseLatency);
+  return Math.min(MAX_DECLARED_MS, (out + usable(inputLatencyS)) * 1000);
+}
+
 /**
  * Le letture del microfono portano il tempo del centro della finestra analizzata,
  * ma un suono improvviso si nota appena entra in coda alla finestra: l'attacco

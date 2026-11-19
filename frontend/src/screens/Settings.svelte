@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { listMics, Mic, MicDeniedError } from "../game/mic";
-  import { noteName } from "../game/pitch-math";
+  import { meterLevel, MIN_RMS, noteName } from "../game/pitch-math";
   import { getSettings, putSettings } from "../lib/api";
+  import { debounced } from "../lib/debounce";
   import { navigate } from "../lib/router";
   import { DIFFICULTY_LABEL, type Difficulty, type Settings } from "../lib/types";
 
@@ -19,7 +20,6 @@
   let testing = $state(false);
   let note = $state<string | null>(null);
   let level = $state(0);
-  let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let ctx: AudioContext | null = null;
   let mic: Mic | null = null;
   let alive = true;
@@ -31,23 +31,28 @@
     listMics().then((found) => (mics = found)).catch(() => {});
     return () => {
       alive = false;
-      clearTimeout(saveTimer);
+      saving.flush();   // una modifica appena fatta non deve perdersi lasciando la schermata
       stopTest();
     };
   });
 
   // Ogni modifica si salva da sola, poco dopo l'ultimo tocco.
-  function save() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(async () => {
-      if (!settings) return;
-      try {
-        await putSettings($state.snapshot(settings));
-        error = "";
-      } catch (e) {
-        error = (e as Error).message;
-      }
-    }, 300);
+  const saving = debounced(async () => {
+    if (!settings) return;
+    try {
+      await putSettings($state.snapshot(settings));
+      error = "";
+    } catch (e) {
+      error = (e as Error).message;
+    }
+  }, 300);
+  const save = () => saving.schedule();
+
+  // Un ritardo scritto a mano è una scelta: da lì in poi non si chiede più di tarare.
+  function onLatency() {
+    if (!settings) return;
+    settings.calibrated = true;
+    save();
   }
 
   async function startTest() {
@@ -61,7 +66,7 @@
         return;
       }
       mic.onReading = (reading) => {
-        level = Math.min(1, reading.rms * 6);
+        level = meterLevel(reading.rms);
         note = reading.midi === null ? null : noteName(reading.midi);
       };
       mic.onLost = () => {
@@ -125,8 +130,14 @@
       {#if testing}
         <div class="meter">
           <div class="note">{note ?? "—"}</div>
-          <div class="level"><div style:width="{level * 100}%"></div></div>
-          <p class="muted">Canta una nota tenuta: qui compare la nota rilevata. In silenzio resta il trattino.</p>
+          <div class="level">
+            <div class="fill" class:heard={level >= meterLevel(MIN_RMS)} style:width="{level * 100}%"></div>
+            <div class="threshold" style:left="{meterLevel(MIN_RMS) * 100}%"></div>
+          </div>
+          <p class="muted">
+            Canta una nota tenuta: qui compare la nota rilevata. In silenzio resta il trattino.
+            La tacca è il volume minimo: sotto, la voce non viene sentita.
+          </p>
         </div>
       {/if}
     </section>
@@ -134,7 +145,7 @@
     <section class="panel">
       <h2>Ritardo del microfono</h2>
       <div class="row">
-        <input type="number" step="1" min="-200" max="1000" bind:value={settings.latency_ms} oninput={save} />
+        <input type="number" step="1" min="-200" max="1000" bind:value={settings.latency_ms} oninput={onLatency} />
         <span class="muted">millisecondi</span>
         <button onclick={() => navigate({ name: "calibration" })}>Tara</button>
         {#if !settings.calibrated}<span class="warn">Non ancora tarato</span>{/if}
@@ -175,8 +186,10 @@
   .warn { color: var(--warn); }
   .meter { margin-top: 1rem; }
   .note { font-size: 2.4rem; font-weight: 700; color: var(--warn); min-height: 3rem; }
-  .level { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; max-width: 420px; }
-  .level div { height: 100%; background: var(--good); transition: width 60ms linear; }
+  .level { position: relative; height: 8px; background: var(--panel-2); border-radius: 4px; max-width: 420px; }
+  .level .fill { height: 100%; border-radius: 4px; background: var(--dim); transition: width 60ms linear; }
+  .level .fill.heard { background: var(--good); }
+  .level .threshold { position: absolute; top: -4px; width: 2px; height: 16px; background: var(--warn); }
   .choices { display: grid; gap: 0.5rem; }
   h1 { margin-top: 0.3rem; }
 </style>

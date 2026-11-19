@@ -88,3 +88,55 @@ def test_real_notes_stage_uses_saved_params(tmp_path, monkeypatch):
     save_note_params(NoteParams(min_note_s=0.5))                  # ora sono tutte troppo corte
     with pytest.raises(NoVoiceError):
         DEFAULT_STAGES["notes"](lib, "s")
+
+
+def test_language_chosen_during_the_transcription_wins(tmp_path, monkeypatch):
+    from karaoke.pipeline import lyrics
+
+    lib = lib_with_song(tmp_path)
+    lib.write_notes("s", [])
+
+    def slow_find(meta, vocals, notes, transcribe_fn):
+        lib.update("s", language="de", language_user=True)       # scelta a mano mentre Whisper lavora
+        return [], "none", "en"
+
+    monkeypatch.setattr(lyrics, "find_lyrics", slow_find)
+    DEFAULT_STAGES["lyrics"](lib, "s")
+    assert lib.get("s").language == "de" and lib.get("s").language_user is True
+
+
+def test_failed_transcription_is_a_visible_error_and_the_song_still_plays(tmp_path, monkeypatch):
+    from karaoke.pipeline import lyrics
+
+    lib = lib_with_song(tmp_path)
+    lib.write_notes("s", [])
+
+    def crash(meta, vocals, notes, transcribe_fn):
+        raise lyrics.LyricsError("Trascrizione non riuscita (memoria della scheda grafica esaurita)")
+
+    monkeypatch.setattr(lyrics, "find_lyrics", crash)
+    stages = {**{s: (lambda l, sid: None) for s in STAGES}, "lyrics": DEFAULT_STAGES["lyrics"]}
+    assert Pipeline(lib, stages).run("s") is False
+    meta = lib.get("s")
+    assert meta.playable is True
+    assert meta.stages["lyrics"].status == "error"
+    assert meta.stages["lyrics"].error == "Trascrizione non riuscita (memoria della scheda grafica esaurita)"
+
+
+def test_transcription_reports_the_model_download(tmp_path, monkeypatch):
+    from karaoke.pipeline import lyrics
+
+    lib = lib_with_song(tmp_path)
+    lib.write_notes("s", [])
+    seen = []
+
+    def fake_transcribe(vocals, language, on_detail=None):
+        on_detail("Scarico il modello di trascrizione: 40%")
+        seen.append(lib.get("s").stages["lyrics"].detail)
+        return [], "en"
+
+    monkeypatch.setattr(lyrics, "transcribe", fake_transcribe)
+    monkeypatch.setattr(lyrics, "find_lyrics",
+                        lambda meta, vocals, notes, transcribe_fn: ([], "none", transcribe_fn(vocals, None)[1]))
+    DEFAULT_STAGES["lyrics"](lib, "s")
+    assert seen == ["Scarico il modello di trascrizione: 40%"]

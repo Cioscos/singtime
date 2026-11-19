@@ -17,6 +17,40 @@ export function lineAt(lines: LyricLine[], t: number): { current: number; next: 
   return { current, next };
 }
 
+/**
+ * I caratteri [da, a) della parola che si sta cantando all'istante `t`: ciò che
+ * precede è già cantato, ciò che segue deve ancora arrivare. Se in quel momento
+ * non si canta nessuna parola i due estremi coincidono. Null se i tempi delle
+ * parole non corrispondono al testo: allora vale solo `sungFraction`.
+ */
+export function wordSpan(line: LyricLine, t: number): [number, number] | null {
+  const text = line.text;
+  if (line.words && line.words.length > 0) {
+    let cursor = 0;
+    let sungUntil = 0;
+    for (const word of line.words) {
+      const from = text.indexOf(word.text, cursor);
+      if (from < 0) return null;
+      const to = from + word.text.length;
+      cursor = to;
+      if (t < word.start) return [from, from];
+      if (t < word.end) return [from, to];
+      sungUntil = to;
+    }
+    return [sungUntil, sungUntil];
+  }
+  // Senza i tempi delle parole si stima: la riga scorre in modo uniforme.
+  if (t < line.start || line.end <= line.start) return t < line.start ? [0, 0] : [text.length, text.length];
+  if (t >= line.end) return [text.length, text.length];
+  let at = Math.min(text.length - 1, Math.floor(((t - line.start) / (line.end - line.start)) * text.length));
+  while (at < text.length && /\s/.test(text[at])) at++;      // su uno spazio: tocca alla parola dopo
+  let from = at;
+  while (from > 0 && !/\s/.test(text[from - 1])) from--;
+  let to = at;
+  while (to < text.length && !/\s/.test(text[to])) to++;
+  return [from, to];
+}
+
 /** Quota (0…1) dei caratteri della riga già cantati all'istante `t`. */
 export function sungFraction(line: LyricLine, t: number): number {
   if (line.words && line.words.length > 0) {

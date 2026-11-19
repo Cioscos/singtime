@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { addFile, addUrl, deleteSong, getSettings, getSystem, listSongs, retrySong } from "../lib/api";
   import { navigate } from "../lib/router";
-  import { formatDuration, songStatus, wasAlreadyThere } from "../lib/status";
+  import { formatDuration, lyricsProblem, songStatus, wasAlreadyThere } from "../lib/status";
   import { DIFFICULTY_LABEL, stageLabel, type Difficulty, type Song, type SystemInfo } from "../lib/types";
 
   let songs = $state<Song[]>([]);
@@ -168,6 +168,12 @@
           {:else if song.lyrics_source === "none"}
             <div class="state muted">Senza testo</div>
           {/if}
+          {#if status.kind === "ready" && lyricsProblem(song)}
+            <div class="state lyrics-problem">
+              Senza testo: {lyricsProblem(song)}.
+              <button class="link" onclick={() => retry(song)}>Riprova</button>
+            </div>
+          {/if}
         </div>
 
         <div class="row actions">
@@ -202,5 +208,7 @@
   .title { font-weight: 600; font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .state { margin-top: 0.35rem; font-size: 0.92rem; }
   .working { color: var(--warn); }
+  .lyrics-problem { color: var(--warn); }
+  .link { border: 0; background: none; padding: 0 0.3rem; color: var(--accent); text-decoration: underline; cursor: pointer; }
   progress { width: 100%; max-width: 320px; height: 6px; margin-top: 0.3rem; accent-color: var(--accent); }
 </style>

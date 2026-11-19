@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import uuid
@@ -17,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import config
+from .fileio import read_json, write_json
 from .jobs import JobQueue
 from .library import (
     INSTRUMENTAL, LYRICS, NOTES, NOTES_SWIFTF0, PITCH, VOCALS, Library, SongNotFound,
@@ -82,13 +82,11 @@ def _load_settings() -> Settings:
     path = config.data_dir() / SETTINGS_FILE
     if not path.is_file():
         return Settings()
-    return Settings(**json.loads(path.read_text(encoding="utf-8")))
+    return Settings(**read_json(path))
 
 
 def _save_settings(settings: Settings) -> None:
-    path = config.data_dir() / SETTINGS_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(settings.model_dump(), indent=1), encoding="utf-8")
+    write_json(config.data_dir() / SETTINGS_FILE, settings.model_dump())
 
 
 def create_app(library: Library, jobs: JobQueue,
@@ -220,6 +218,9 @@ def create_app(library: Library, jobs: JobQueue,
             # Una lingua scelta a mano vince sul riconoscimento; vuota torna automatica.
             changes["language"] = (changes["language"] or "").strip().lower() or None
             changes["language_user"] = changes["language"] is not None
+            if changes["language"] is None and not library.get(song_id).language_user:
+                # Era già automatica: quella rilevata resta dov'è.
+                del changes["language"], changes["language_user"]
         for name in ("title", "artist", "lyrics_offset_s"):
             if name in changes and changes[name] is None:
                 del changes[name]

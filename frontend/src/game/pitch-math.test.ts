@@ -22,3 +22,14 @@ test("gate rejects noise, silence and out-of-range", () => {
   expect(gate(3000, 0.95, 0.05)).toBeNull();
   expect(gate(NaN, 0.95, 0.05)).toBeNull();
 });
+
+import { meterLevel, MIN_RMS } from "./pitch-math";
+
+test("meterLevel is a decibel scale, with the voice threshold well inside it", () => {
+  expect(meterLevel(0)).toBe(0);
+  expect(meterLevel(0.0005)).toBe(0);
+  expect(meterLevel(1)).toBe(1);
+  expect(meterLevel(3)).toBe(1);
+  expect(meterLevel(0.1)).toBeCloseTo(2 / 3);
+  expect(meterLevel(MIN_RMS)).toBeCloseTo(1 / 3);       // la tacca della soglia si vede bene
+});

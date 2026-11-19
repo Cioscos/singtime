@@ -17,12 +17,19 @@ import httpx
 
 from .. import config
 from ..models import LyricLine, Note, SongMeta, Word
+from .progress import ByteProgress, watching
 
 log = logging.getLogger(__name__)
 
 LRCLIB_URL = "https://lrclib.net"
 USER_AGENT = "karaoke-tracciato/0.1"
+WHISPER_DOWNLOAD_LABEL = "Scarico il modello di trascrizione"
 LyricsSource = Literal["lrclib", "whisper", "none"]
+
+
+class LyricsError(Exception):
+    """La ricerca del testo si è rotta; il messaggio è in italiano e va mostrato così com'è."""
+
 
 # --- formato LRC -------------------------------------------------------------
 
@@ -71,23 +78,40 @@ def fetch_lrclib(artist: str, title: str, duration_s: float,
     client = client or httpx.Client(base_url=LRCLIB_URL, timeout=10.0)
     headers = {"User-Agent": USER_AGENT}
     tolerance = config.LYRICS_DURATION_TOLERANCE_S
+    def distance(candidate: Any, missing_duration: float | None = None) -> float | None:
+        """Quanto dista la durata del candidato; None se il candidato non è utilizzabile."""
+        if not isinstance(candidate, dict):
+            return None
+        synced = candidate.get("syncedLyrics")
+        duration = candidate.get("duration")
+        if duration is None:
+            duration = missing_duration
+        if not isinstance(synced, str) or not synced.strip():
+            return None
+        if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+            return None
+        gap = abs(duration - duration_s)
+        return gap if gap <= tolerance else None
+
     try:
         exact = client.get("/api/get", headers=headers, params={
             "artist_name": artist, "track_name": title, "duration": int(round(duration_s))})
         if exact.status_code == 200:
             data = exact.json()
-            if data.get("syncedLyrics") and abs((data.get("duration") or duration_s) - duration_s) <= tolerance:
+            # Qui la durata l'abbiamo chiesta noi: se la risposta non la ripete, vale la nostra.
+            if distance(data, missing_duration=duration_s) is not None:
                 return data["syncedLyrics"]
         search = client.get("/api/search", headers=headers,
                             params={"artist_name": artist, "track_name": title})
         if search.status_code != 200:
             return None
-        candidates = [c for c in search.json()
-                      if c.get("syncedLyrics") and c.get("duration") is not None
-                      and abs(c["duration"] - duration_s) <= tolerance]
-        if not candidates:
+        found = search.json()
+        # Il servizio è tenuto da volontari: una risposta di forma strana vale come "non trovato".
+        ranked = [(gap, c) for c in (found if isinstance(found, list) else [])
+                  if (gap := distance(c)) is not None]
+        if not ranked:
             return None
-        return min(candidates, key=lambda c: abs(c["duration"] - duration_s))["syncedLyrics"]
+        return min(ranked, key=lambda pair: pair[0])[1]["syncedLyrics"]
     except (httpx.HTTPError, ValueError) as exc:
         log.warning("LRCLIB non raggiungibile: %s", exc)
         return None
@@ -127,7 +151,26 @@ def lines_from_words(segments: list[list[Word]], max_chars: int = 48) -> list[Ly
 _whisper: dict[str, Any] = {}
 
 
-def _load_whisper() -> Any:
+def _missing_download(root: str) -> tuple[Path, int] | None:
+    """(cartella in cui arriverà il modello, byte da scaricare); None se c'è già o non si sa."""
+    import huggingface_hub
+    from faster_whisper import utils
+
+    try:
+        utils.download_model(config.WHISPER_MODEL, local_files_only=True, cache_dir=root)
+        return None                                   # già scaricato
+    except Exception:
+        pass
+    try:
+        repo = getattr(utils, "_MODELS", {}).get(config.WHISPER_MODEL, config.WHISPER_MODEL)
+        files = huggingface_hub.HfApi().model_info(repo, files_metadata=True).siblings or []
+        return Path(root), sum(f.size or 0 for f in files)
+    except Exception as exc:                          # senza la dimensione si scarica lo stesso
+        log.info("Dimensione del modello di trascrizione non disponibile: %s", exc)
+        return None
+
+
+def _load_whisper(on_detail: Callable[[str], None] | None = None) -> Any:
     if "model" in _whisper:
         return _whisper["model"]
     import torch
@@ -141,25 +184,33 @@ def _load_whisper() -> Any:
     from faster_whisper import WhisperModel
 
     root = str(config.models_dir() / "whisper")
-    model = None
-    if torch.cuda.is_available():
-        try:
-            model = WhisperModel(config.WHISPER_MODEL, device="cuda", compute_type="float16",
-                                 download_root=root)
-        except Exception as exc:  # librerie CUDA non trovate: si ripiega sulla CPU
-            log.warning("Whisper su GPU non disponibile (%s): uso la CPU, sarà più lento.", exc)
-    if model is None:
-        model = WhisperModel(config.WHISPER_MODEL, device="cpu", compute_type="int8",
-                             download_root=root)
+
+    def load() -> Any:
+        if torch.cuda.is_available():
+            try:
+                return WhisperModel(config.WHISPER_MODEL, device="cuda", compute_type="float16",
+                                    download_root=root)
+            except Exception as exc:  # librerie CUDA non trovate: si ripiega sulla CPU
+                log.warning("Whisper su GPU non disponibile (%s): uso la CPU, sarà più lento.", exc)
+        return WhisperModel(config.WHISPER_MODEL, device="cpu", compute_type="int8", download_root=root)
+
+    missing = _missing_download(root) if on_detail is not None else None
+    if missing is None or on_detail is None:
+        model = load()
+    else:
+        folder, total = missing
+        with watching(folder, total, ByteProgress(on_detail, WHISPER_DOWNLOAD_LABEL)):
+            model = load()
     _whisper["model"] = model
     return model
 
 
-def transcribe(vocals: Path, language: str | None) -> tuple[list[LyricLine], str | None]:
+def transcribe(vocals: Path, language: str | None,
+               on_detail: Callable[[str], None] | None = None) -> tuple[list[LyricLine], str | None]:
     """Trascrive la traccia voce; restituisce le righe e la lingua rilevata."""
     import librosa
 
-    model = _load_whisper()
+    model = _load_whisper(on_detail)
     # L'audio si decodifica qui: il decoder interno di faster-whisper 1.2 non è
     # compatibile con le versioni recenti di PyAV.
     audio, _ = librosa.load(str(vocals), sr=16000, mono=True)
@@ -176,7 +227,11 @@ def find_lyrics(meta: SongMeta, vocals: Path, notes: list[Note],
                 fetch: Callable[..., str | None] = fetch_lrclib,
                 transcribe_fn: Callable[[Path, str | None], tuple[list[LyricLine], str | None]] = transcribe,
                 ) -> tuple[list[LyricLine], LyricsSource, str | None]:
-    """(righe, origine, lingua rilevata). Non fallisce mai per testo assente."""
+    """(righe, origine, lingua rilevata). Non fallisce mai per testo assente.
+
+    Se invece la trascrizione si rompe solleva `LyricsError`: il brano si gioca
+    comunque, ma il motivo deve arrivare a chi guarda, non restare in un log.
+    """
     if meta.artist and meta.title and meta.duration_s:
         synced = fetch(meta.artist, meta.title, meta.duration_s)
         if synced:
@@ -186,6 +241,6 @@ def find_lyrics(meta: SongMeta, vocals: Path, notes: list[Note],
     try:
         lines, language = transcribe_fn(vocals, meta.language if meta.language_user else None)
     except Exception as exc:
-        log.warning("Trascrizione non riuscita: %s", exc)
-        return [], "none", None
+        reason = next((line.strip() for line in str(exc).splitlines() if line.strip()), type(exc).__name__)
+        raise LyricsError(f"Trascrizione non riuscita ({reason[:200].rstrip('.')})") from exc
     return (lines, "whisper", language) if lines else ([], "none", language)

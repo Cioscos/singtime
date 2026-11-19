@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getLyrics, getSong, patchSong, putLyrics, retrySong } from "../lib/api";
+  import { debounced } from "../lib/debounce";
+  import { lyricsProblem } from "../lib/status";
   import type { LyricLine, Song } from "../lib/types";
 
   let { id }: { id: string } = $props();
@@ -17,7 +19,6 @@
   let error = $state("");
   let notice = $state("");
   let searching = $state(false);
-  let offsetTimer: ReturnType<typeof setTimeout> | undefined;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
 
   const textChanged = $derived(texts.some((text, i) => text.trim() !== lines[i]?.text));
@@ -28,7 +29,7 @@
   onMount(() => {
     load();
     return () => {
-      clearTimeout(offsetTimer);
+      savingOffset.flush();   // uno spostamento appena fatto non deve perdersi lasciando la schermata
       clearTimeout(pollTimer);
     };
   });
@@ -78,17 +79,15 @@
     }
   }
 
-  function onOffset() {
-    clearTimeout(offsetTimer);
-    offsetTimer = setTimeout(async () => {
-      try {
-        song = await patchSong(id, { lyrics_offset_s: offset });
-        error = "";
-      } catch (e) {
-        error = (e as Error).message;
-      }
-    }, 300);
-  }
+  const savingOffset = debounced(async () => {
+    try {
+      song = await patchSong(id, { lyrics_offset_s: offset });
+      error = "";
+    } catch (e) {
+      error = (e as Error).message;
+    }
+  }, 300);
+  const onOffset = () => savingOffset.schedule();
 
   async function searchAgain() {
     if (!confirm("Cerco di nuovo il testo: le correzioni fatte a mano andranno perse. Continuo?")) return;
@@ -112,7 +111,9 @@
         if (current.queue_position !== null) return poll();
         show(current);
         await loadLyrics();
-        notice = current.lyrics_source === "none" ? "Nessun testo trovato." : `Testo aggiornato: ${SOURCE_LABEL[current.lyrics_source ?? "none"].toLowerCase()}.`;
+        if (lyricsProblem(current)) notice = "";      // il motivo compare accanto all'origine
+        else if (current.lyrics_source === "none") notice = "Nessun testo trovato.";
+        else notice = `Testo aggiornato: ${SOURCE_LABEL[current.lyrics_source ?? "none"].toLowerCase()}.`;
       } catch (e) {
         error = (e as Error).message;
       }
@@ -161,6 +162,9 @@
         <span>Origine: <strong>{SOURCE_LABEL[song.lyrics_source ?? "none"]}</strong></span>
         <button onclick={searchAgain} disabled={searching}>{searching ? "Cerco…" : "Cerca di nuovo il testo"}</button>
       </div>
+      {#if lyricsProblem(song) && !searching}
+        <p class="error problem">L'ultima ricerca del testo non è riuscita: {lyricsProblem(song)}.</p>
+      {/if}
       <p class="muted">Dopo aver corretto artista, titolo o lingua, cerca di nuovo: prima su LRCLIB, poi trascrivendo la voce.</p>
 
       <label class="offset">

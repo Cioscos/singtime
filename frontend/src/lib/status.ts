@@ -26,6 +26,12 @@ export function songStatus(song: Song): SongStatus {
   return { kind: "error", stage: first, message: "Elaborazione non avviata" };
 }
 
+/** Perché la ricerca del testo è fallita, se è fallita: il brano si gioca lo stesso, ma senza testo. */
+export function lyricsProblem(song: Song): string | null {
+  const state = song.stages.lyrics;
+  return state.status === "error" ? state.error ?? "Errore" : null;
+}
+
 /** Vero se il brano appena "aggiunto" c'era già: il server restituisce quello esistente. */
 export function wasAlreadyThere(library: Song[], added: Song): boolean {
   return library.some((song) => song.id === added.id);

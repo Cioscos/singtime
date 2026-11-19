@@ -7,7 +7,6 @@ Tutte le soglie stanno in `NoteParams`, perché vanno tarate a orecchio.
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
@@ -15,6 +14,7 @@ import numpy as np
 from scipy.ndimage import median_filter
 
 from .. import config
+from ..fileio import read_json, write_json
 from ..models import Note, PitchCurve
 
 PARAMS_FILE = "note_params.json"
@@ -44,13 +44,11 @@ def load_note_params() -> NoteParams:
     path = config.data_dir() / PARAMS_FILE
     if not path.is_file():
         return NoteParams()
-    return NoteParams.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    return NoteParams.from_dict(read_json(path))
 
 
 def save_note_params(params: NoteParams) -> None:
-    path = config.data_dir() / PARAMS_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(params.to_dict(), indent=1), encoding="utf-8")
+    write_json(config.data_dir() / PARAMS_FILE, params.to_dict())
 
 
 # Un segmento è un intervallo di fotogrammi [inizio, fine).

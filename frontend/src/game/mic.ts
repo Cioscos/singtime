@@ -91,6 +91,13 @@ export class Mic {
     return mic;
   }
 
+  /** Il ritardo che il dispositivo dichiara, in secondi; undefined se non lo dice. */
+  get inputLatency(): number | undefined {
+    // Chrome ed Edge lo riportano, ma il campo manca ancora dai tipi standard del DOM.
+    const settings = this.stream.getAudioTracks()[0]?.getSettings() as (MediaTrackSettings & { latency?: number }) | undefined;
+    return settings?.latency;
+  }
+
   /** Il dispositivo effettivamente aperto. */
   get deviceLabel(): string {
     return this.stream.getAudioTracks()[0]?.label ?? "";
