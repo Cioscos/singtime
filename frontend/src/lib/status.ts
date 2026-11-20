@@ -36,6 +36,7 @@ export function lyricsProblem(song: Song): string | null {
 export const LYRICS_CHOICES: { value: LyricsChoice; label: string }[] = [
   { value: "auto", label: "Automatica" },
   { value: "lrclib", label: "LRCLIB" },
+  { value: "aligned", label: "LRCLIB allineato alla voce" },
   { value: "whisper", label: "Trascrizione dalla voce" },
   { value: "none", label: "Nessun testo" },
 ];

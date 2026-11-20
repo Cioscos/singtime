@@ -96,7 +96,7 @@ def test_language_chosen_during_the_transcription_wins(tmp_path, monkeypatch):
     lib = lib_with_song(tmp_path)
     lib.write_notes("s", [])
 
-    def slow_find(meta, vocals, notes, transcribe_fn):
+    def slow_find(meta, vocals, notes, transcribe_fn, align_fn):
         lib.update("s", language="de", language_user=True)       # scelta a mano mentre Whisper lavora
         return [], "none", "en", None
 
@@ -111,7 +111,7 @@ def test_failed_transcription_is_a_visible_error_and_the_song_still_plays(tmp_pa
     lib = lib_with_song(tmp_path)
     lib.write_notes("s", [])
 
-    def crash(meta, vocals, notes, transcribe_fn):
+    def crash(meta, vocals, notes, transcribe_fn, align_fn):
         raise lyrics.LyricsError("Trascrizione non riuscita (memoria della scheda grafica esaurita)")
 
     monkeypatch.setattr(lyrics, "find_lyrics", crash)
@@ -130,16 +130,39 @@ def test_transcription_reports_the_model_download(tmp_path, monkeypatch):
     lib.write_notes("s", [])
     seen = []
 
-    def fake_transcribe(vocals, language, on_detail=None):
+    def fake_transcribe(vocals, language, notes, on_detail=None):
         on_detail("Scarico il modello di trascrizione: 40%")
         seen.append(lib.get("s").stages["lyrics"].detail)
         return [], "en"
 
     monkeypatch.setattr(lyrics, "transcribe", fake_transcribe)
     monkeypatch.setattr(lyrics, "find_lyrics",
-                        lambda meta, vocals, notes, transcribe_fn: ([], "none", transcribe_fn(vocals, None)[1], None))
+                        lambda meta, vocals, notes, transcribe_fn, align_fn:
+                        ([], "none", transcribe_fn(vocals, None, notes)[1], None))
     DEFAULT_STAGES["lyrics"](lib, "s")
     assert seen == ["Scarico il modello di trascrizione: 40%"]
+
+
+def test_alignment_says_what_it_is_doing(tmp_path, monkeypatch):
+    from karaoke.pipeline import lyrics
+    from karaoke.pipeline.runner import ALIGN_NOTICE
+
+    lib = lib_with_song(tmp_path)
+    lib.write_notes("s", [])
+    seen = []
+
+    def fake_align(text, vocals, notes, language, on_detail=None):
+        seen.append(lib.get("s").stages["lyrics"].detail)
+        on_detail("Scarico il modello di allineamento: 12 MB")
+        seen.append(lib.get("s").stages["lyrics"].detail)
+        return [], 0, "en"
+
+    monkeypatch.setattr(lyrics, "align_to_voice", fake_align)
+    monkeypatch.setattr(lyrics, "find_lyrics",
+                        lambda meta, vocals, notes, transcribe_fn, align_fn:
+                        ([], "none", align_fn(["riga"], vocals, notes, None)[2], None))
+    DEFAULT_STAGES["lyrics"](lib, "s")
+    assert seen == [ALIGN_NOTICE, "Scarico il modello di allineamento: 12 MB"]
 
 
 def test_the_lyrics_note_is_saved_and_cleared(tmp_path, monkeypatch):
@@ -148,7 +171,7 @@ def test_the_lyrics_note_is_saved_and_cleared(tmp_path, monkeypatch):
     lib = lib_with_song(tmp_path)
     lib.write_notes("s", [])
     answers = iter([([], "none", None, "LRCLIB non ha questo brano"), ([], "none", None, None)])
-    monkeypatch.setattr(lyrics, "find_lyrics", lambda meta, vocals, notes, transcribe_fn: next(answers))
+    monkeypatch.setattr(lyrics, "find_lyrics", lambda meta, vocals, notes, transcribe_fn, align_fn: next(answers))
     DEFAULT_STAGES["lyrics"](lib, "s")
     assert lib.get("s").lyrics_note == "LRCLIB non ha questo brano"
     DEFAULT_STAGES["lyrics"](lib, "s")

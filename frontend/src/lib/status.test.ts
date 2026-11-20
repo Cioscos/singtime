@@ -67,6 +67,7 @@ test("the lyrics sources are offered in a fixed order, the automatic one first",
   expect(LYRICS_CHOICES).toEqual([
     { value: "auto", label: "Automatica" },
     { value: "lrclib", label: "LRCLIB" },
+    { value: "aligned", label: "LRCLIB allineato alla voce" },
     { value: "whisper", label: "Trascrizione dalla voce" },
     { value: "none", label: "Nessun testo" },
   ]);
@@ -74,5 +75,5 @@ test("the lyrics sources are offered in a fixed order, the automatic one first",
 
 test("the button says what applying the chosen source will do", () => {
   expect(applyLabel("none")).toBe("Togli il testo");
-  expect(["auto", "lrclib", "whisper"].map((c) => applyLabel(c as LyricsChoice))).toEqual(Array(3).fill("Cerca il testo"));
+  expect(["auto", "lrclib", "aligned", "whisper"].map((c) => applyLabel(c as LyricsChoice))).toEqual(Array(4).fill("Cerca il testo"));
 });

@@ -8,19 +8,22 @@
   let { id }: { id: string } = $props();
 
   const SOURCE_LABEL = {
-    lrclib: "Da LRCLIB", whisper: "Trascritto dalla voce", manual: "Scritto a mano", none: "Nessun testo",
+    lrclib: "Da LRCLIB", aligned: "Da LRCLIB, allineato alla voce", whisper: "Trascritto dalla voce",
+    manual: "Scritto a mano", none: "Nessun testo",
   } as const;
 
   const HELP: Record<LyricsChoice, string> = {
-    auto: "Prima su LRCLIB: se il testo combacia con la voce uso quello, altrimenti trascrivo la voce.",
+    auto: "Prima su LRCLIB: se il testo combacia con la voce uso quello; se i tempi non combaciano, o c'è solo il testo di un'altra versione, ne allineo le parole alla voce; se non c'è, trascrivo la voce.",
     lrclib: "Il testo scritto dai volontari di LRCLIB, anche quando i tempi non combaciano con la voce. Servono artista e titolo giusti.",
-    whisper: "Trascrivo la voce isolata: tempi precisi, ma qualche parola può essere sbagliata o mancare.",
+    aligned: "Le parole di LRCLIB, di qualunque versione del brano, con i tempi presi da questa registrazione parola per parola. Le righe che qui non si cantano spariscono. Servono artista e titolo giusti; la prima volta scarico un modello da 1,2 GB.",
+    whisper: "Trascrivo la voce isolata: non serve che il brano sia su LRCLIB, ma sul cantato qualche parola o frase può essere sbagliata o mancare.",
     none: "Si gioca seguendo solo le barre.",
   };
   const LOSE = "il testo e i tempi sistemati a mano andranno persi. Continuo?";
   const CONFIRM: Record<LyricsChoice, string> = {
     auto: `Cerco di nuovo il testo: ${LOSE}`,
     lrclib: `Prendo il testo da LRCLIB: ${LOSE}`,
+    aligned: `Prendo il testo da LRCLIB e lo allineo alla voce: ${LOSE}`,
     whisper: `Trascrivo di nuovo la voce: ${LOSE}`,
     none: `Tolgo il testo da questo brano: ${LOSE}`,
   };

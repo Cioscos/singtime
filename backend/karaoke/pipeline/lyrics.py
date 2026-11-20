@@ -1,8 +1,10 @@
 """Passo 5: il testo sincronizzato riga per riga.
 
-Prima si cerca su LRCLIB un testo già sincronizzato e scritto da persone;
-se non c'è, o se non combacia con la voce, si trascrive la traccia voce con
-Whisper. Senza testo si gioca lo stesso.
+Prima si cerca su LRCLIB un testo già sincronizzato e scritto da persone. Se
+i suoi tempi non combaciano con la voce, o se LRCLIB ha solo il testo di
+un'altra versione del brano, se ne tengono le parole e i tempi si ricavano
+dalla voce (vedi `align`). Se il testo non c'è proprio, si trascrive la voce
+con Whisper. Senza testo si gioca lo stesso.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import httpx
 
 from .. import config
 from ..models import LyricLine, Note, SongMeta, Word
+from . import align
 from .progress import ByteProgress, watching
 
 log = logging.getLogger(__name__)
@@ -25,7 +28,7 @@ log = logging.getLogger(__name__)
 LRCLIB_URL = "https://lrclib.net"
 USER_AGENT = "karaoke-tracciato/0.1"
 WHISPER_DOWNLOAD_LABEL = "Scarico il modello di trascrizione"
-LyricsSource = Literal["lrclib", "whisper", "none"]
+LyricsSource = Literal["lrclib", "aligned", "whisper", "none"]
 
 
 class LyricsError(Exception):
@@ -133,21 +136,16 @@ def fetch_lrclib(artist: str, title: str, duration_s: float,
         gap = abs(duration - duration_s)
         return gap if gap <= tolerance else None
 
-    def answered(response: httpx.Response) -> httpx.Response:
-        if response.status_code >= 500 or response.status_code == 429:
-            raise LrclibUnreachable(f"risposta {response.status_code}")
-        return response
-
     try:
-        exact = answered(client.get("/api/get", headers=headers, params={
+        exact = _answered(client.get("/api/get", headers=headers, params={
             "artist_name": artist, "track_name": title, "duration": int(round(duration_s))}))
         if exact.status_code == 200:
             data = exact.json()
             # Qui la durata l'abbiamo chiesta noi: se la risposta non la ripete, vale la nostra.
             if distance(data, missing_duration=duration_s) is not None:
                 return data["syncedLyrics"]
-        search = answered(client.get("/api/search", headers=headers,
-                                     params={"artist_name": artist, "track_name": title}))
+        search = _answered(client.get("/api/search", headers=headers,
+                                      params={"artist_name": artist, "track_name": title}))
         if search.status_code != 200:
             return None
         found = search.json()
@@ -165,6 +163,50 @@ def fetch_lrclib(artist: str, title: str, duration_s: float,
     finally:
         if own_client:
             client.close()
+
+
+def _answered(response: httpx.Response) -> httpx.Response:
+    if response.status_code >= 500 or response.status_code == 429:
+        raise LrclibUnreachable(f"risposta {response.status_code}")
+    return response
+
+
+def fetch_lrclib_text(artist: str, title: str, duration_s: float,
+                      client: httpx.Client | None = None) -> list[str] | None:
+    """Le righe del testo del brano, di qualunque versione: quella più vicina per durata. Oppure None.
+
+    Solo le parole: i tempi di un'altra versione non servono, si ricavano dalla voce.
+    Se il servizio non risponde solleva `LrclibUnreachable`.
+    """
+    own_client = client is None
+    client = client or httpx.Client(base_url=LRCLIB_URL, timeout=10.0)
+    try:
+        search = _answered(client.get("/api/search", headers={"User-Agent": USER_AGENT},
+                                      params={"artist_name": artist, "track_name": title}))
+        found = search.json() if search.status_code == 200 else []
+    except httpx.HTTPError as exc:
+        raise LrclibUnreachable(str(exc) or type(exc).__name__) from exc
+    except ValueError as exc:
+        log.warning("Risposta di LRCLIB illeggibile: %s", exc)
+        return None
+    finally:
+        if own_client:
+            client.close()
+
+    def distance(candidate: dict[str, Any]) -> float:
+        duration = candidate.get("duration")
+        known = isinstance(duration, (int, float)) and not isinstance(duration, bool)
+        return abs(duration - duration_s) if known else float("inf")
+
+    candidates = [c for c in (found if isinstance(found, list) else []) if isinstance(c, dict)]
+    for candidate in sorted(candidates, key=distance):
+        synced, plain = candidate.get("syncedLyrics"), candidate.get("plainLyrics")
+        lines = [text for _, text in parse_lrc(synced) if text] if isinstance(synced, str) else []
+        if not lines and isinstance(plain, str):
+            lines = [line.strip() for line in plain.splitlines() if line.strip()]
+        if lines:
+            return lines
+    return None
 
 
 # --- Whisper -----------------------------------------------------------------
@@ -265,69 +307,192 @@ def _load_whisper(on_detail: Callable[[str], None] | None = None) -> Any:
     return model
 
 
-def transcribe(vocals: Path, language: str | None,
-               on_detail: Callable[[str], None] | None = None) -> tuple[list[LyricLine], str | None]:
-    """Trascrive la traccia voce; restituisce le righe e la lingua rilevata."""
+def transcribe_words(vocals: Path, language: str | None, on_detail: Callable[[str], None] | None = None,
+                     follow_context: bool = True) -> tuple[list[list[Word]], str | None]:
+    """Le parole che Whisper sente nella traccia voce, un gruppo per segmento, e la lingua rilevata.
+
+    Senza il suo filtro dei silenzi: è fatto per il parlato e del canto scarta frasi intere.
+    Le parole inventate dove nessuno canta le toglie chi chiama, guardando le note.
+    Con `follow_context` ogni tratto si trascrive sapendo che cosa è stato detto prima.
+    """
     import librosa
 
     model = _load_whisper(on_detail)
     # L'audio si decodifica qui: il decoder interno di faster-whisper 1.2 non è
     # compatibile con le versioni recenti di PyAV.
     audio, _ = librosa.load(str(vocals), sr=16000, mono=True)
-    segments, info = model.transcribe(audio, language=language,
-                                      word_timestamps=True, vad_filter=True)
+    segments, info = model.transcribe(audio, language=language, word_timestamps=True, vad_filter=False,
+                                      condition_on_previous_text=follow_context)
     grouped = [[Word(float(w.start), float(w.end), w.word) for w in (segment.words or [])]
                for segment in segments]
-    return lines_from_words(grouped), getattr(info, "language", None)
+    return grouped, getattr(info, "language", None)
+
+
+def _sung_words(grouped: list[list[Word]], notes: list[Note]) -> list[list[Word]]:
+    """Toglie le parole che Whisper si è inventato: dove nessuno canta, o ripetute a vuoto.
+
+    Quando gira a vuoto ripete una frase già detta dando a ogni parola durata zero.
+    Senza note (non dovrebbe succedere: senza note non c'è brano) non si toglie niente.
+    """
+    def empty(word: Word) -> bool:
+        return word.end - word.start < config.ALIGN_MIN_HEARD_WORD_S
+
+    def sung(word: Word) -> bool:
+        low, high = word.start - config.ALIGN_VOICE_MARGIN_S, word.end + config.ALIGN_VOICE_MARGIN_S
+        return not notes or any(note.start < high and note.start + note.duration > low for note in notes)
+
+    kept = []
+    for segment in grouped:
+        words = [word for i, word in enumerate(segment) if sung(word) and not (
+            empty(word) and sum(1 for near in segment[max(0, i - 2): i + 3] if empty(near)) >= config.WHISPER_EMPTY_RUN)]
+        if words:
+            kept.append(words)
+    return kept
+
+
+def transcribe(vocals: Path, language: str | None, notes: list[Note],
+               on_detail: Callable[[str], None] | None = None) -> tuple[list[LyricLine], str | None]:
+    """Trascrive la traccia voce; restituisce le righe e la lingua rilevata.
+
+    Le parole sono di Whisper. I tempi no, dove si può: sul canto li sbaglia (attacca la
+    pausa alla parola che segue), quindi li rifinisce l'allineatore, riga per riga, attorno
+    a dove Whisper ha sentito le parole.
+    """
+    import librosa
+
+    # Senza contesto: sul canto, sapere che cosa è stato detto prima lo fa a volte girare a
+    # vuoto o saltare strofe intere, e ogni giro dà un risultato diverso.
+    grouped, detected = transcribe_words(vocals, language, on_detail, follow_context=False)
+    lines = lines_from_words(_sung_words(grouped, notes))
+    if not lines:
+        return lines, detected
+    try:
+        audio, _ = librosa.load(str(vocals), sr=align.SAMPLE_RATE, mono=True)
+        refined, _ = align.place_lines([line.text for line in lines],
+                                       [word for line in lines for word in line.words or []], notes,
+                                       len(audio) / align.SAMPLE_RATE, align.VoiceAligner(audio, on_detail))
+    except Exception as exc:                # senza allineatore il testo c'è lo stesso, con i tempi di Whisper
+        log.warning("Tempi della trascrizione non rifiniti (%s): restano quelli di Whisper.", exc)
+        return lines, detected
+    return refined or lines, detected
+
+
+def align_to_voice(text: list[str], vocals: Path, notes: list[Note], language: str | None,
+                   on_detail: Callable[[str], None] | None = None) -> tuple[list[LyricLine], int, str | None]:
+    """Mette `text` sui tempi della voce: (righe, quante non si sono ritrovate, lingua rilevata)."""
+    import librosa
+
+    # Qui Whisper serve solo a dire all'incirca dove cade ogni riga: le parole inventate
+    # dove nessuno canta le toglie `place_lines`.
+    grouped, detected = transcribe_words(vocals, language, on_detail)
+    heard = [word for segment in grouped for word in segment]
+    audio, _ = librosa.load(str(vocals), sr=align.SAMPLE_RATE, mono=True)
+    lines, lost = align.place_lines(text, heard, notes, len(audio) / align.SAMPLE_RATE,
+                                    align.VoiceAligner(audio, on_detail))
+    return lines, lost, detected
 
 
 # --- scelta della fonte ------------------------------------------------------
 
+AlignFn = Callable[[list[str], Path, list[Note], str | None], tuple[list[LyricLine], int, str | None]]
+UNREACHABLE = "LRCLIB non è raggiungibile: riprova più tardi"
+
+
+def _reason(exc: Exception) -> str:
+    """La prima riga dell'errore, corta abbastanza da stare nella schermata."""
+    first = next((line.strip() for line in str(exc).splitlines() if line.strip()), type(exc).__name__)
+    return first[:200].rstrip(".")
+
+
+def _lost_note(lost: int) -> str:
+    return ("1 riga del testo non si ritrova nella voce" if lost == 1
+            else f"{lost} righe del testo non si ritrovano nella voce")
+
+
 def find_lyrics(meta: SongMeta, vocals: Path, notes: list[Note],
                 fetch: Callable[..., str | None] = fetch_lrclib,
-                transcribe_fn: Callable[[Path, str | None], tuple[list[LyricLine], str | None]] = transcribe,
+                transcribe_fn: Callable[[Path, str | None, list[Note]], tuple[list[LyricLine], str | None]] = transcribe,
+                fetch_text: Callable[..., list[str] | None] = fetch_lrclib_text,
+                align_fn: AlignFn = align_to_voice,
                 ) -> tuple[list[LyricLine], LyricsSource, str | None, str | None]:
     """(righe, origine, lingua rilevata, nota per chi guarda). Non fallisce mai per testo assente.
 
-    La fonte la decide `meta.lyrics_choice`; con "auto" vale LRCLIB se combacia
-    con la voce, altrimenti la trascrizione. La nota spiega un esito che da
-    solo non si capirebbe (LRCLIB scartato, oppure voluto ma senza il brano).
+    La fonte la decide `meta.lyrics_choice`. Con "auto" vale LRCLIB se combacia con la
+    voce; se non combacia, o se LRCLIB ha solo un'altra versione del brano, le sue parole
+    si allineano alla voce; se nemmeno così si trova un testo, si trascrive. La nota spiega
+    un esito che da solo non si capirebbe (LRCLIB scartato, righe non ritrovate, brano assente).
 
-    Se la trascrizione si rompe solleva `LyricsError`: il brano si gioca
-    comunque, ma il motivo deve arrivare a chi guarda, non restare in un log.
+    Se la trascrizione o l'allineamento voluto si rompono solleva `LyricsError`: il brano
+    si gioca comunque, ma il motivo deve arrivare a chi guarda, non restare in un log.
     """
     choice = meta.lyrics_choice
     if choice == "none":
         return [], "none", None, None
+    language = meta.language if meta.language_user else None
+    searchable = bool(meta.artist and meta.title and meta.duration_s)
 
-    note = None
-    if choice in ("auto", "lrclib"):
-        searchable = bool(meta.artist and meta.title and meta.duration_s)
-        try:
-            synced = fetch(meta.artist, meta.title, meta.duration_s) if searchable else None
-        except LrclibUnreachable as exc:
-            log.warning("LRCLIB non raggiungibile: %s", exc)
+    note = None                              # perché, alla fine, si è trascritta la voce
+    if choice != "whisper":
+        text: list[str] | None = None        # le parole da mettere sui tempi di questa registrazione
+        mismatch = None
+        reachable = True
+        if choice in ("auto", "lrclib"):
+            try:
+                synced = fetch(meta.artist, meta.title, meta.duration_s) if searchable else None
+            except LrclibUnreachable as exc:
+                log.warning("LRCLIB non raggiungibile: %s", exc)
+                if choice == "lrclib":
+                    # Un errore lascia il testo che c'era: senza risposta non si sa se LRCLIB ne abbia uno.
+                    raise LyricsError(UNREACHABLE) from exc
+                synced, reachable = None, False
+            entries = parse_lrc(synced) if synced else []
+            lines = lines_from_lrc(entries, notes, meta.duration_s or 0.0)
+            # Il confronto con la voce serve a scegliere al posto di chi gioca: se ha scelto lui, non si fa.
+            mismatch = lrc_mismatch(entries, lines, notes) if lines and choice == "auto" else None
+            if lines and not mismatch:
+                return lines, "lrclib", None, None
             if choice == "lrclib":
-                # Un errore lascia il testo che c'era: senza risposta non si sa se LRCLIB ne abbia uno.
-                raise LyricsError("LRCLIB non è raggiungibile: riprova più tardi") from exc
-            synced = None
-        entries = parse_lrc(synced) if synced else []
-        lines = lines_from_lrc(entries, notes, meta.duration_s or 0.0)
-        # Il confronto con la voce serve a scegliere al posto di chi gioca: se ha scelto lui, non si fa.
-        mismatch = lrc_mismatch(entries, lines, notes) if lines and choice == "auto" else None
-        if lines and not mismatch:
-            return lines, "lrclib", None, None
-        if choice == "lrclib":
-            note = ("LRCLIB non ha un testo sincronizzato per questa versione del brano" if searchable
-                    else "Per cercare su LRCLIB servono artista e titolo")
+                note = ("LRCLIB non ha un testo sincronizzato per questa versione del brano" if searchable
+                        else "Per cercare su LRCLIB servono artista e titolo")
+                return [], "none", None, note
+            if mismatch:
+                log.info("Testo di LRCLIB scartato (%s): ne allineo le parole alla voce.", mismatch)
+                text = [line for _, line in entries if line]
+
+        if text is None and searchable and reachable:
+            try:
+                text = fetch_text(meta.artist, meta.title, meta.duration_s)
+            except LrclibUnreachable as exc:
+                log.warning("LRCLIB non raggiungibile: %s", exc)
+                if choice == "aligned":
+                    raise LyricsError(UNREACHABLE) from exc
+        if text:
+            try:
+                lines, lost, detected = align_fn(text, vocals, notes, language)
+            except Exception as exc:
+                if choice == "aligned":
+                    raise LyricsError(f"Allineamento non riuscito ({_reason(exc)})") from exc
+                log.warning("Allineamento non riuscito (%s): trascrivo la voce.", exc)
+                lines, lost, detected = [], 0, None
+            # In automatico il testo deve ritrovarsi per buona parte: se no è di un altro brano,
+            # o la voce non si capisce, ed è meglio la trascrizione.
+            if lines and (choice == "aligned" or len(lines) >= len(text) * config.ALIGN_MIN_KEPT_SHARE):
+                why = (f"Il testo di LRCLIB non combacia con la voce ({mismatch})" if mismatch
+                       else "LRCLIB ha il testo di un'altra versione del brano" if choice == "auto" else None)
+                parts = ([f"{why}: l'ho allineato alla voce"] if why else []) + ([_lost_note(lost)] if lost else [])
+                return lines, "aligned", detected, "; ".join(parts) or None
+        if choice == "aligned":
+            note = ("Per cercare su LRCLIB servono artista e titolo" if not searchable
+                    else "Il testo di LRCLIB non si ritrova nella voce" if text
+                    else "LRCLIB non ha un testo per questo brano")
             return [], "none", None, note
         if mismatch:
-            log.info("Testo di LRCLIB scartato (%s): trascrivo la voce.", mismatch)
             note = f"Il testo di LRCLIB non combacia con la voce ({mismatch}): ho trascritto la voce"
+        elif text:
+            note = "Il testo di LRCLIB non si ritrova nella voce: ho trascritto la voce"
 
     try:
-        lines, language = transcribe_fn(vocals, meta.language if meta.language_user else None)
+        lines, detected = transcribe_fn(vocals, language, notes)
     except Exception as exc:
-        reason = next((line.strip() for line in str(exc).splitlines() if line.strip()), type(exc).__name__)
-        raise LyricsError(f"Trascrizione non riuscita ({reason[:200].rstrip('.')})") from exc
-    return (lines, "whisper", language, note) if lines else ([], "none", language, note)
+        raise LyricsError(f"Trascrizione non riuscita ({_reason(exc)})") from exc
+    return (lines, "whisper", detected, note) if lines else ([], "none", detected, note)

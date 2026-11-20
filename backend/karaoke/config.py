@@ -28,6 +28,22 @@ LYRICS_MAX_SILENT_LINES_SHARE = 0.25  # quota delle righe che possono cadere dov
 # Una prima parola trascritta così tanto prima della seconda è rimasta indietro (vedi lyrics._pull_in_first_word).
 WHISPER_LEFT_BEHIND_GAP_S = 2.5     # nella prova le pause vere arrivano a 2,1 s, quelle false partono da 2,8
 WHISPER_LEFT_BEHIND_WORD_S = 0.6
+WHISPER_EMPTY_RUN = 3               # parole a durata zero vicine oltre le quali Whisper sta girando a vuoto
+# Testo scritto messo sui tempi della voce (vedi pipeline/align.py). Soglie tarate sui quattro brani della prova.
+ALIGN_MIN_ANCHOR_RUN = 3            # parole di fila uguali tra testo scritto e trascritto perché valgano come ancora
+ALIGN_MIN_HEARD_WORD_S = 0.05       # Whisper dà durata zero alle parole che ripete a vuoto
+ALIGN_VOICE_MARGIN_S = 0.3          # una parola trascritta più lontana di così da ogni nota è inventata
+ALIGN_WINDOW_BEFORE_S = 1.5         # quanto si allarga la finestra di una riga attorno a dove l'ha sentita Whisper
+ALIGN_WINDOW_AFTER_S = 1.0
+ALIGN_WINDOW_OVERLAP_S = 0.2        # quanto può sconfinare nella riga vicina
+ALIGN_FIRST_WORD_GAP_S = 1.0        # buco dentro la prima parola oltre il quale l'attacco è dopo il buco
+ALIGN_MAX_FIRST_WORD_S = 1.0        # una prima parola più lunga, per Whisper, ha inghiottito la pausa prima
+ALIGN_MAX_EARLIER_S = 2.0           # di quanto Whisper può anticipare l'attacco trovato dall'allineatore
+ALIGN_MIN_SCORE = 0.05              # sotto, l'allineatore non ha riconosciuto niente
+ALIGN_MAX_BLIND_WINDOW_S = 6.0      # una riga non riconosciuta resta solo se non poteva finire più lontano di così
+ALIGN_MIN_SUNG_SHARE = 0.5          # una riga che nessuno ha sentito deve cadere almeno per metà sul canto
+ALIGN_MIN_LETTER_S = 0.03           # sotto questa durata per lettera la riga è stata schiacciata: non c'era posto
+ALIGN_MIN_KEPT_SHARE = 0.5          # in automatico: se si ritrova meno di metà delle righe, il testo non è di questo brano
 
 # Limiti.
 MAX_DURATION_S = 900

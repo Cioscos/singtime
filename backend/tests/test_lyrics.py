@@ -2,10 +2,18 @@ import httpx
 import pytest
 
 from karaoke.models import LyricLine, Note, SongMeta, Word
+from karaoke.pipeline import lyrics as lyrics_module
 from karaoke.pipeline.lyrics import (
     LrclibUnreachable, LyricsError,
-    fetch_lrclib, find_lyrics, lines_from_lrc, lines_from_words, parse_lrc,
+    fetch_lrclib, fetch_lrclib_text, lines_from_lrc, lines_from_words, parse_lrc,
 )
+
+
+def find_lyrics(*args, **kwargs):
+    """Quella vera, ma senza rete né modelli: di base LRCLIB non ha altre versioni e niente si allinea."""
+    kwargs.setdefault("fetch_text", lambda *a, **k: None)
+    kwargs.setdefault("align_fn", lambda *a, **k: ([], 0, None))
+    return lyrics_module.find_lyrics(*args, **kwargs)
 
 LRC = """[ar:Artista]
 [ti:Titolo]
@@ -159,7 +167,7 @@ def test_find_keeps_lrclib_text_that_follows_the_voice(tmp_path):
 def test_find_falls_back_to_whisper_with_user_language(tmp_path):
     seen = {}
 
-    def fake(vocals, language):
+    def fake(vocals, language, notes):
         seen["lang"] = language
         return [LyricLine(1, 2, "hello", None)], "en"
     lines, src, lang, note = find_lyrics(meta(language="it", language_user=True), tmp_path / "v.flac", [],
@@ -170,7 +178,7 @@ def test_find_falls_back_to_whisper_with_user_language(tmp_path):
 def test_find_auto_language_when_not_set_by_user(tmp_path):
     seen = {}
 
-    def fake(vocals, language):
+    def fake(vocals, language, notes):
         seen["lang"] = language
         return [], "en"
     lines, src, _, note = find_lyrics(meta(language="en"), tmp_path / "v.flac", [], fetch=lambda *a, **k: None, transcribe_fn=fake)
@@ -186,7 +194,7 @@ def test_find_without_artist_skips_lrclib(tmp_path):
 
 
 def test_a_transcription_crash_says_why(tmp_path):
-    def boom(vocals, language):
+    def boom(vocals, language, notes):
         raise RuntimeError("libreria CUDA mancante\n  dettagli interni")
     with pytest.raises(LyricsError, match=r"^Trascrizione non riuscita \(libreria CUDA mancante\)$"):
         find_lyrics(meta(), tmp_path / "v.flac", [], fetch=lambda *a, **k: None, transcribe_fn=boom)
@@ -229,12 +237,17 @@ def test_transcribe_decodes_the_audio_itself(tmp_path, monkeypatch):
         def transcribe(self, audio, **kw):
             assert isinstance(audio, np.ndarray) and audio.ndim == 1 and len(audio) == 16000
             assert kw["word_timestamps"] is True and kw["language"] == "it"
+            # Il filtro dei silenzi è fatto per il parlato: del canto scarta frasi intere.
+            assert kw["vad_filter"] is False
+            asked.append(kw["condition_on_previous_text"])
             segment = SimpleNamespace(words=[SimpleNamespace(start=0.0, end=0.5, word=" ciao")])
             return iter([segment]), SimpleNamespace(language="it")
 
+    asked = []
     monkeypatch.setattr(lyrics, "_load_whisper", lambda *a: FakeModel())
-    lines, language = lyrics.transcribe(tmp_path / "v.flac", "it")
-    assert lines[0].text == "ciao" and language == "it"
+    assert lyrics.transcribe_words(tmp_path / "v.flac", "it") == ([[Word(0.0, 0.5, " ciao")]], "it")
+    lyrics.transcribe_words(tmp_path / "v.flac", "it", follow_context=False)
+    assert asked == [True, False]
 
 
 # --- la fonte scelta da chi gioca ---------------------------------------------
@@ -334,3 +347,211 @@ def test_find_keeps_lrclib_text_with_a_few_lines_nobody_sings(tmp_path):
     _, src, _, _ = find_lyrics(meta(), tmp_path / "v.flac", sung(20, 60), fetch=lambda *a, **k: lrc,
                                transcribe_fn=lambda *a: pytest.fail("non deve trascrivere"))
     assert src == "lrclib"
+
+
+# --- le parole di LRCLIB sui tempi della voce ---------------------------------
+
+ALIGNED = [LyricLine(10, 12, "Prima riga", [Word(10, 11, "Prima"), Word(11, 12, "riga")])]
+TEXT = ["Prima riga", "Seconda riga", "Terza riga"]
+
+
+def no_transcription(*args):
+    pytest.fail("non deve trascrivere")
+
+
+def aligning(lines=ALIGNED, lost=0, seen=None):
+    def align(text, vocals, notes, language):
+        if seen is not None:
+            seen.append((text, language))
+        return lines, lost, "en"
+    return align
+
+
+def test_auto_aligns_the_text_of_another_version(tmp_path):
+    seen = []
+    lines, src, lang, note = find_lyrics(
+        meta(), tmp_path / "v.flac", sung(10, 70), fetch=lambda *a, **k: None, transcribe_fn=no_transcription,
+        fetch_text=lambda artist, title, duration: ["Prima riga"] if (artist, title, duration) == ("A", "T", 200.0) else None,
+        align_fn=aligning(seen=seen))
+    assert (lines, src, lang) == (ALIGNED, "aligned", "en") and seen == [(["Prima riga"], None)]
+    assert note == "LRCLIB ha il testo di un'altra versione del brano: l'ho allineato alla voce"
+
+
+def test_auto_aligns_the_words_of_a_text_whose_times_do_not_match_the_voice(tmp_path):
+    seen = []
+    lines, src, _, note = find_lyrics(
+        meta(language="it", language_user=True), tmp_path / "v.flac", sung(10, 70), fetch=lambda *a, **k: LATE_LRC,
+        transcribe_fn=no_transcription, fetch_text=lambda *a: pytest.fail("il testo c'è già"),
+        align_fn=aligning(lines=ALIGNED * 2, lost=1, seen=seen))
+    assert src == "aligned" and seen == [(TEXT, "it")]
+    assert note.startswith("Il testo di LRCLIB non combacia con la voce (")
+    assert note.endswith("): l'ho allineato alla voce; 1 riga del testo non si ritrova nella voce")
+
+
+def test_auto_transcribes_when_too_little_of_the_text_is_found_in_the_voice(tmp_path):
+    lines, src, _, note = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 70), fetch=lambda *a, **k: None,
+                                      transcribe_fn=lambda *a: (WHISPER_LINE, "en"),
+                                      fetch_text=lambda *a: TEXT, align_fn=aligning(lost=2))
+    assert (lines, src) == (WHISPER_LINE, "whisper")                    # una riga su tre: sarà di un altro brano
+    assert note == "Il testo di LRCLIB non si ritrova nella voce: ho trascritto la voce"
+
+
+def test_auto_transcribes_when_the_alignment_breaks(tmp_path):
+    def broken(*args):
+        raise RuntimeError("CUDA out of memory")
+    lines, src, _, _ = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 70), fetch=lambda *a, **k: None,
+                                   transcribe_fn=lambda *a: (WHISPER_LINE, "en"),
+                                   fetch_text=lambda *a: TEXT, align_fn=broken)
+    assert (lines, src) == (WHISPER_LINE, "whisper")
+
+
+def test_auto_does_not_ask_lrclib_twice_when_it_cannot_be_reached(tmp_path):
+    _, src, _, _ = find_lyrics(meta(), tmp_path / "v.flac", sung(10, 70), fetch=unreachable,
+                               transcribe_fn=lambda *a: (WHISPER_LINE, "en"),
+                               fetch_text=lambda *a: pytest.fail("LRCLIB non risponde"))
+    assert src == "whisper"
+
+
+def test_choice_aligned_takes_the_words_and_ignores_their_times(tmp_path):
+    lines, src, _, note = find_lyrics(
+        meta(lyrics_choice="aligned"), tmp_path / "v.flac", sung(10, 70), transcribe_fn=no_transcription,
+        fetch=lambda *a, **k: pytest.fail("i tempi di LRCLIB non servono"),
+        fetch_text=lambda *a: TEXT, align_fn=aligning(lost=2))
+    assert (lines, src) == (ALIGNED, "aligned")                         # scelto apposta: vale anche se si ritrova poco
+    assert note == "2 righe del testo non si ritrovano nella voce"
+
+
+@pytest.mark.parametrize("artist, text, aligned, why", [
+    ("", None, ALIGNED, "Per cercare su LRCLIB servono artista e titolo"),
+    ("A", None, ALIGNED, "LRCLIB non ha un testo per questo brano"),
+    ("A", TEXT, [], "Il testo di LRCLIB non si ritrova nella voce"),
+])
+def test_choice_aligned_without_a_result_leaves_no_text_and_says_why(tmp_path, artist, text, aligned, why):
+    m = meta(lyrics_choice="aligned")
+    m.artist = artist
+    found = find_lyrics(m, tmp_path / "v.flac", sung(10, 70), transcribe_fn=no_transcription,
+                        fetch_text=lambda *a: text, align_fn=aligning(lines=aligned))
+    assert found == ([], "none", None, why)
+
+
+def test_choice_aligned_fails_loudly(tmp_path):
+    def broken(*args):
+        raise RuntimeError("CUDA out of memory.\nTraceback...")
+    m = meta(lyrics_choice="aligned")
+    with pytest.raises(LyricsError, match="LRCLIB non è raggiungibile"):
+        find_lyrics(m, tmp_path / "v.flac", [], fetch_text=unreachable, transcribe_fn=no_transcription)
+    with pytest.raises(LyricsError, match=r"^Allineamento non riuscito \(CUDA out of memory\)$"):
+        find_lyrics(m, tmp_path / "v.flac", [], fetch_text=lambda *a: TEXT, align_fn=broken,
+                    transcribe_fn=no_transcription)
+
+
+def test_fetch_text_takes_the_words_of_the_closest_version():
+    def handler(req):
+        assert req.url.path == "/api/search" and req.headers["user-agent"] == "karaoke-tracciato/0.1"
+        assert dict(req.url.params) == {"artist_name": "A", "track_name": "T"}
+        return httpx.Response(200, json=[
+            {"duration": 300, "plainLyrics": "lontana"},
+            {"duration": 215, "syncedLyrics": "[00:20.00]Seconda\n[00:10.00]Prima\n[00:30.00]", "plainLyrics": "x"},
+            {"duration": 201, "syncedLyrics": "", "plainLyrics": None},        # la più vicina, ma vuota
+            "robaccia",
+        ])
+    assert fetch_lrclib_text("A", "T", 200.0, client=lrclib(handler)) == ["Prima", "Seconda"]
+
+
+def test_fetch_text_falls_back_to_the_plain_text():
+    def handler(req):
+        return httpx.Response(200, json=[{"plainLyrics": "Prima riga\n\n  Seconda riga \n", "syncedLyrics": None}])
+    assert fetch_lrclib_text("A", "T", 200.0, client=lrclib(handler)) == ["Prima riga", "Seconda riga"]
+
+
+@pytest.mark.parametrize("response", [httpx.Response(200, json=[]), httpx.Response(404, json={}),
+                                      httpx.Response(200, text="<html>"), httpx.Response(200, json={"a": 1})])
+def test_fetch_text_without_a_text(response):
+    assert fetch_lrclib_text("A", "T", 200.0, client=lrclib(lambda req: response)) is None
+
+
+def test_fetch_text_says_when_lrclib_cannot_be_reached():
+    with pytest.raises(LrclibUnreachable):
+        fetch_lrclib_text("A", "T", 200.0, client=lrclib(lambda req: httpx.Response(503)))
+
+    def offline(req):
+        raise httpx.ConnectError("rete assente")
+    with pytest.raises(LrclibUnreachable):
+        fetch_lrclib_text("A", "T", 200.0, client=lrclib(offline))
+
+
+def test_align_to_voice_hands_what_whisper_heard_to_the_aligner(tmp_path, monkeypatch):
+    import numpy as np
+    import soundfile as sf
+
+    sf.write(tmp_path / "v.flac", np.zeros((44100 * 2, 2)), 44100)
+    seen = {}
+
+    def fake_words(vocals, language, on_detail=None, follow_context=True):
+        seen["transcribe"] = (language, follow_context)
+        return [[Word(1.0, 1.5, " uno")], [Word(1.5, 2.0, " due")]], "it"
+
+    def fake_place(text, heard, notes, duration_s, aligner):
+        seen["place"] = (text, [w.text for w in heard], notes, duration_s, aligner)
+        return ALIGNED, 3
+
+    monkeypatch.setattr(lyrics_module, "transcribe_words", fake_words)
+    monkeypatch.setattr(lyrics_module.align, "place_lines", fake_place)
+    monkeypatch.setattr(lyrics_module.align, "VoiceAligner", lambda audio, on_detail: ("voce", len(audio), on_detail))
+    notes = sung(1, 2)
+    assert lyrics_module.align_to_voice(["uno due"], tmp_path / "v.flac", notes, None, on_detail=print) == (ALIGNED, 3, "it")
+    assert seen["transcribe"] == (None, True)
+    assert seen["place"] == (["uno due"], [" uno", " due"], notes, 2.0, ("voce", 32000, print))
+
+
+# --- la trascrizione: parole di Whisper, tempi rifiniti dall'allineatore -------
+
+HEARD = [
+    [Word(10.0, 10.5, " Canto"), Word(10.5, 11.0, " una"), Word(11.0, 11.5, " riga.")],
+    [Word(40.0, 41.0, " Grazie"), Word(41.0, 42.0, " a"), Word(42.0, 43.0, " tutti.")],        # lì nessuno canta
+    [Word(12.0, 12.5, " E"), Word(12.5, 13.0, " un'altra,"),
+     Word(13.0, 13.0, " canto"), Word(13.0, 13.0, " una"), Word(13.0, 13.0, " riga")],          # ripetuta a vuoto
+]
+
+
+def transcribing(tmp_path, monkeypatch, aligner):
+    import numpy as np
+    import soundfile as sf
+
+    sf.write(tmp_path / "v.flac", np.zeros(16000 * 2), 16000)
+    seen = {}
+
+    def fake_words(vocals, language, on_detail=None, follow_context=True):
+        seen["transcribe"] = (language, follow_context)
+        return HEARD, "it"
+
+    def fake_place(text, heard, notes, duration_s, used):
+        seen["place"] = (text, [w.text for w in heard], duration_s, used)
+        return [LyricLine(10.2, 11.6, "Canto una riga.", None)], 1
+
+    monkeypatch.setattr(lyrics_module, "transcribe_words", fake_words)
+    monkeypatch.setattr(lyrics_module.align, "place_lines", fake_place)
+    monkeypatch.setattr(lyrics_module.align, "VoiceAligner", aligner)
+    return seen, lyrics_module.transcribe(tmp_path / "v.flac", "it", sung(9, 15), on_detail=print)
+
+
+def test_transcribe_drops_invented_words_and_lets_the_aligner_refine_the_times(tmp_path, monkeypatch):
+    seen, (lines, language) = transcribing(tmp_path, monkeypatch, lambda audio, on_detail: ("voce", len(audio), on_detail))
+    assert seen["transcribe"] == ("it", False)                          # senza contesto: sul canto lo fa girare a vuoto
+    assert seen["place"] == (["Canto una riga.", "E un'altra,"], ["Canto", "una", "riga.", "E", "un'altra,"],
+                             2.0, ("voce", 32000, print))
+    assert (lines, language) == ([LyricLine(10.2, 11.6, "Canto una riga.", None)], "it")
+
+
+def test_transcribe_keeps_the_times_of_whisper_when_the_aligner_is_not_there(tmp_path, monkeypatch):
+    def offline(audio, on_detail):
+        raise OSError("modello non scaricabile")
+    _, (lines, language) = transcribing(tmp_path, monkeypatch, offline)
+    assert [(l.start, l.end, l.text) for l in lines] == [(10.0, 11.5, "Canto una riga."), (12.0, 13.0, "E un'altra,")]
+    assert language == "it"
+
+
+def test_without_notes_no_word_is_dropped_for_being_unsung():
+    kept = lyrics_module._sung_words(HEARD, [])
+    assert [[w.text.strip() for w in segment] for segment in kept] == [
+        ["Canto", "una", "riga."], ["Grazie", "a", "tutti."], ["E", "un'altra,"]]

@@ -66,6 +66,21 @@ sopra. Tutte le scorciatoie sono elencate nell'editor, sotto «Come si usa e sco
 Le modifiche valgono dal salvataggio (Ctrl+S); cercare di nuovo il testo dalla scheda
 «Dati e fonte del testo» le sostituisce.
 
+## Da dove viene il testo
+
+Lo decide la «Fonte del testo» (Modifica → Dati e fonte del testo), brano per brano:
+
+- **Automatica**: il testo sincronizzato di [LRCLIB](https://lrclib.net) se combacia con la voce;
+  se i suoi tempi non combaciano, o LRCLIB ha solo il testo di un'altra versione del brano,
+  le parole si allineano alla voce; se il testo non c'è, si trascrive la voce.
+- **LRCLIB**: il testo sincronizzato a mano, così com'è (tempi per riga).
+- **LRCLIB allineato alla voce**: le parole di LRCLIB con i tempi presi da questa registrazione,
+  parola per parola. Le righe che in questa registrazione non si cantano vengono tolte.
+- **Trascrizione dalla voce**: per i brani che LRCLIB non ha; sul cantato può perdere parole o frasi.
+
+L'allineamento non legge i testi in alfabeti non latini e può non ritrovare le righe coperte da
+cori o effetti: in quei casi restano da sistemare a mano nell'editor.
+
 ## Dove stanno i dati
 
 Tutto in `data/` dentro la cartella del progetto:

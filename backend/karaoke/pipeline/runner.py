@@ -10,14 +10,15 @@ import soundfile as sf
 
 from .. import config
 from ..library import META, SOURCE, VOCALS, Library
-from ..models import STAGES
+from ..models import STAGES, Note
 from . import acquire, lyrics, pitch, separate
 from .notes import load_note_params, segment_notes
 
 log = logging.getLogger(__name__)
 
 NO_VOICE = "Nessuna voce trovata"
-TRANSCRIBE_NOTICE = "Trascrivo il testo (la prima volta scarico il modello)…"
+TRANSCRIBE_NOTICE = "Trascrivo il testo (la prima volta scarico i modelli)…"
+ALIGN_NOTICE = "Allineo il testo alla voce (la prima volta scarico i modelli)…"
 
 
 class NoVoiceError(Exception):
@@ -71,15 +72,20 @@ def stage_notes(library: Library, song_id: str) -> None:
 def stage_lyrics(library: Library, song_id: str) -> None:
     meta = library.get(song_id)
 
-    def transcribing(vocals: Path, language: str | None):
-        def detail(text: str) -> None:
-            library.set_stage(song_id, "lyrics", "running", detail=text)
+    def detail(text: str) -> None:
+        library.set_stage(song_id, "lyrics", "running", detail=text)
 
+    def transcribing(vocals: Path, language: str | None, notes: list[Note]):
         detail(TRANSCRIBE_NOTICE)
-        return lyrics.transcribe(vocals, language, on_detail=detail)
+        return lyrics.transcribe(vocals, language, notes, on_detail=detail)
+
+    def aligning(text: list[str], vocals: Path, notes: list[Note], language: str | None):
+        detail(ALIGN_NOTICE)
+        return lyrics.align_to_voice(text, vocals, notes, language, on_detail=detail)
 
     lines, source, language, note = lyrics.find_lyrics(
-        meta, library.path(song_id, VOCALS), library.read_notes(song_id), transcribe_fn=transcribing)
+        meta, library.path(song_id, VOCALS), library.read_notes(song_id),
+        transcribe_fn=transcribing, align_fn=aligning)
     library.write_lyrics(song_id, lines)
     changes: dict[str, object] = {"lyrics_source": source, "lyrics_note": note}
     # Si rilegge: la lingua può essere stata scelta a mano mentre Whisper lavorava.

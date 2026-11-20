@@ -12,9 +12,10 @@ STAGES = ("acquire", "separate", "pitch", "notes", "lyrics")
 PLAYABLE_STAGES = ("acquire", "separate", "pitch", "notes")
 
 StageStatus = Literal["pending", "running", "done", "error"]
-LyricsChoice = Literal["auto", "lrclib", "whisper", "none"]
+# "aligned": le parole di LRCLIB (di qualunque versione) messe sui tempi di questa registrazione.
+LyricsChoice = Literal["auto", "lrclib", "aligned", "whisper", "none"]
 # Da dove viene il testo che c'è adesso; "manual" è quello scritto da chi gioca.
-LyricsOrigin = Literal["lrclib", "whisper", "manual", "none"]
+LyricsOrigin = Literal["lrclib", "aligned", "whisper", "manual", "none"]
 
 
 @dataclass

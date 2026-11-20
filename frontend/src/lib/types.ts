@@ -24,7 +24,7 @@ export interface ScoreRecord {
 }
 
 /** Da dove chi gioca vuole il testo; "auto" lascia decidere al confronto con la voce. */
-export type LyricsChoice = "auto" | "lrclib" | "whisper" | "none";
+export type LyricsChoice = "auto" | "lrclib" | "aligned" | "whisper" | "none";
 
 export interface Song {
   id: string;
@@ -37,7 +37,7 @@ export interface Song {
   pitch_tracker: string;
   language: string | null;
   language_user: boolean;
-  lyrics_source: "lrclib" | "whisper" | "manual" | "none" | null;
+  lyrics_source: "lrclib" | "aligned" | "whisper" | "manual" | "none" | null;
   lyrics_choice: LyricsChoice;
   lyrics_note: string | null;
   lyrics_offset_s: number;
