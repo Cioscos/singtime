@@ -47,6 +47,25 @@ La prima volta che elabori un brano vengono scaricati i modelli (qualche gigabyt
 Dalla libreria puoi anche correggere titolo, artista e testo di un brano (**Modifica**) e guardare
 come è stato costruito il tracciato (**Verifica**).
 
+## Sistemare il testo
+
+**Modifica** apre l'editor del testo: in alto la timeline con il volume della voce, le note cantate,
+le righe e le parole; sotto l'elenco delle righe. Si ascolta il brano intero, solo la voce o solo la
+base, anche rallentato.
+
+- **Sulla timeline** si trascina una riga per spostarla e i suoi bordi per allungarla o accorciarla;
+  con una riga selezionata si trascinano anche i confini tra le parole.
+- **Mentre si ascolta** `I` e `O` segnano inizio e fine della riga selezionata dove sta l'audio.
+- **Batti il tempo** sincronizza tutto a orecchio: si tiene premuto Spazio mentre la riga (o la
+  parola) viene cantata e si rilascia quando finisce. Un tocco breve segna solo l'inizio.
+- **Nel testo** Invio divide la riga, Backspace a inizio riga la unisce alla precedente.
+- **Incolla testo…** sostituisce tutto il testo, anche da un file LRC con i tempi; **Esporta LRC** lo scarica.
+
+Con «Aggancia alle note» gli istanti segnati vicino all'attacco o alla fine di una nota ci vanno
+sopra. Tutte le scorciatoie sono elencate nell'editor, sotto «Come si usa e scorciatoie».
+Le modifiche valgono dal salvataggio (Ctrl+S); cercare di nuovo il testo dalla scheda
+«Dati e fonte del testo» le sostituisce.
+
 ## Dove stanno i dati
 
 Tutto in `data/` dentro la cartella del progetto:

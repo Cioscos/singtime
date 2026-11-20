@@ -24,6 +24,7 @@ PITCH = "pitch.json"
 NOTES = "notes.json"
 NOTES_SWIFTF0 = "notes.swiftf0.json"
 LYRICS = "lyrics.json"
+WAVEFORM = "waveform.json"
 SCORES = "scores.json"
 
 INTERRUPTED = "Elaborazione interrotta"

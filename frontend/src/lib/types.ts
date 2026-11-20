@@ -37,7 +37,7 @@ export interface Song {
   pitch_tracker: string;
   language: string | null;
   language_user: boolean;
-  lyrics_source: "lrclib" | "whisper" | "none" | null;
+  lyrics_source: "lrclib" | "whisper" | "manual" | "none" | null;
   lyrics_choice: LyricsChoice;
   lyrics_note: string | null;
   lyrics_offset_s: number;
@@ -66,6 +66,12 @@ export interface LyricLine {
   end: number;
   text: string;
   words: Word[] | null;
+}
+
+/** Il volume della voce isolata: `rate` valori al secondo, ciascuno da 0 a 255. */
+export interface Waveform {
+  rate: number;
+  peaks: number[];
 }
 
 export interface PitchData {

@@ -102,15 +102,106 @@ def test_patch_language_marks_it_user_set(ctx):
     assert r.json()["language_user"] is False and r.json()["title"] == "Altro"
 
 
-def test_edit_lyrics_text_only(ctx):
+def line(start, end, text, words=None):
+    return {"start": start, "end": end, "text": text, "words": words}
+
+
+def test_edit_lyrics_saves_text_and_times(ctx):
     c, lib, jobs = ctx
     add_song(c, jobs)
     lib.write_lyrics("yt-abc", [LyricLine(1, 2, "sbagliato", [Word(1, 2, "sbagliato")]), LyricLine(3, 4, "ok", None)])
-    r = c.put("/api/songs/yt-abc/lyrics", json={"texts": ["giusto", "ok"]})
-    lines = r.json()["lines"]
-    assert lines[0]["text"] == "giusto" and lines[0]["start"] == 1 and lines[0]["words"] is None
-    assert c.get("/api/songs/yt-abc/lyrics").json()["lines"][0]["text"] == "giusto"
-    assert c.put("/api/songs/yt-abc/lyrics", json={"texts": ["una sola"]}).status_code == 400
+    lib.update("yt-abc", lyrics_source="whisper", lyrics_offset_s=0.4)
+    words = [{"start": 1.25, "end": 1.6, "text": "tutto"}, {"start": 1.6, "end": 2.1004, "text": " giusto "}]
+    r = c.put("/api/songs/yt-abc/lyrics", json={"lines": [
+        line(1.25, 2.1004, "  tutto   giusto ", words), line(3.5, 4, "ok"), line(6, 7.5, "una riga in più")]})
+    assert r.status_code == 200
+    saved = c.get("/api/songs/yt-abc/lyrics").json()["lines"]
+    assert saved == r.json()["lines"] and len(saved) == 3
+    assert saved[0] == {"start": 1.25, "end": 2.1, "text": "tutto giusto", "words": [
+        {"start": 1.25, "end": 1.6, "text": "tutto"}, {"start": 1.6, "end": 2.1, "text": "giusto"}]}
+    assert saved[1]["start"] == 3.5 and saved[1]["words"] is None
+    meta = c.get("/api/songs/yt-abc").json()
+    # I tempi salvati contengono già lo spostamento; l'origine del testo resta quella che era.
+    assert meta["lyrics_offset_s"] == 0 and meta["lyrics_source"] == "whisper"
+
+
+@pytest.mark.parametrize("lines, reason", [
+    ([line(1, 2, "   ")], "La riga 1 è vuota"),
+    ([line(2, 1, "a")], "La riga 1 finisce prima di cominciare"),
+    ([line(5, 6, "a"), line(4, 7, "b")], "La riga 2 comincia prima della precedente"),
+    ([line(1, 2, "a b", [{"start": 1.5, "end": 2, "text": "a"}, {"start": 1, "end": 1.5, "text": "b"}])],
+     "I tempi delle parole della riga 1 non sono in ordine"),
+])
+def test_edit_lyrics_rejects_broken_lines(ctx, lines, reason):
+    c, lib, jobs = ctx
+    add_song(c, jobs)
+    lib.write_lyrics("yt-abc", [LyricLine(1, 2, "com'era", None)])
+    r = c.put("/api/songs/yt-abc/lyrics", json={"lines": lines})
+    assert r.status_code == 400 and r.json()["detail"] == reason
+    assert lib.read_lyrics("yt-abc")[0].text == "com'era"                     # resta il testo di prima
+    assert c.put("/api/songs/yt-abc/lyrics", json={"lines": [line(-1, 2, "a")]}).status_code == 422
+
+
+def test_lyrics_written_by_hand_replace_a_failed_search(ctx):
+    c, lib, jobs = ctx
+    add_song(c, jobs)
+    lib.update("yt-abc", lyrics_source="none")
+    lib.set_stage("yt-abc", "lyrics", "error", error="Trascrizione non riuscita")
+    r = c.put("/api/songs/yt-abc/lyrics", json={"lines": [line(1, 2, "scritto da me")]})   # il file non c'era ancora
+    assert r.status_code == 200
+    meta = c.get("/api/songs/yt-abc").json()
+    assert meta["lyrics_source"] == "manual" and meta["stages"]["lyrics"] == {"status": "done", "error": None, "detail": None}
+    assert c.put("/api/songs/yt-abc/lyrics", json={"lines": []}).status_code == 200
+    assert c.get("/api/songs/yt-abc").json()["lyrics_source"] == "none"
+    assert c.get("/api/songs/yt-abc/lyrics").json() == {"lines": []}
+
+
+def test_lyrics_cannot_be_edited_before_the_song_is_ready(ctx):
+    c, lib, jobs = ctx
+    add_song(c, jobs)
+    lib.set_stage("yt-abc", "notes", "error", error="Nessuna voce trovata")
+    assert c.put("/api/songs/yt-abc/lyrics", json={"lines": [line(1, 2, "a")]}).status_code == 404
+    assert c.put("/api/songs/nessuno/lyrics", json={"lines": []}).status_code == 404
+
+
+def test_lyrics_cannot_be_edited_while_the_song_is_processing(tmp_path, monkeypatch):
+    monkeypatch.setenv("KARAOKE_DATA_DIR", str(tmp_path))
+    lib = Library(tmp_path / "library")
+    started, release = threading.Event(), threading.Event()
+
+    def slow_lyrics(library, song_id):
+        started.set()
+        release.wait(5)
+
+    jobs = JobQueue(Pipeline(lib, {**NOOP_STAGES, "lyrics": slow_lyrics}))
+    jobs.start()
+    try:
+        c = TestClient(create_app(lib, jobs, probe=fake_probe), base_url=LOCAL)
+        c.post("/api/songs/url", json={"url": "https://youtu.be/abc"})
+        assert started.wait(5)
+        r = c.put("/api/songs/yt-abc/lyrics", json={"lines": [line(1, 2, "a")]})
+        assert r.status_code == 409 and "in elaborazione" in r.json()["detail"]
+    finally:
+        release.set()
+        jobs.join()
+        jobs.stop()
+
+
+def test_waveform_follows_the_voice(ctx):
+    c, lib, jobs = ctx
+    add_song(c, jobs)
+    assert c.get("/api/songs/yt-abc/waveform").status_code == 404           # la voce isolata non c'è ancora
+    rate = 8000
+    audio = np.zeros((rate * 2, 2), dtype="float32")
+    audio[rate:rate + rate // 2, 0] = 0.5                                    # mezzo secondo di voce a metà volume…
+    audio[rate + rate // 2:, 1] = 0.25                                       # …poi mezzo secondo più piano, sull'altro canale
+    sf.write(lib.path("yt-abc", VOCALS), audio, rate, format="FLAC")
+    body = c.get("/api/songs/yt-abc/waveform").json()
+    assert body["rate"] == 100 and len(body["peaks"]) == 200
+    assert set(body["peaks"][:100]) == {0} and set(body["peaks"][100:150]) == {255}
+    assert set(body["peaks"][150:]) == {128}
+    assert lib.path("yt-abc", "waveform.json").is_file()
+    assert c.get("/api/songs/yt-abc/waveform").json() == body               # la seconda volta arriva dal file
 
 
 def test_notes_preview_does_not_save(ctx):
@@ -155,6 +246,7 @@ def test_audio_files_are_served(ctx):
     r = c.get("/api/songs/yt-abc/audio/vocals")
     assert r.status_code == 200 and r.content[:4] == b"fLaC"
     assert c.get("/api/songs/yt-abc/audio/instrumental").status_code == 404
+    assert c.get("/api/songs/yt-abc/audio/source").status_code == 404        # il brano intero, quando c'è
     assert c.get("/api/songs/yt-abc/audio/altro").status_code == 404
     assert not lib.path("yt-abc", INSTRUMENTAL).exists()
 

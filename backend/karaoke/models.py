@@ -13,6 +13,8 @@ PLAYABLE_STAGES = ("acquire", "separate", "pitch", "notes")
 
 StageStatus = Literal["pending", "running", "done", "error"]
 LyricsChoice = Literal["auto", "lrclib", "whisper", "none"]
+# Da dove viene il testo che c'è adesso; "manual" è quello scritto da chi gioca.
+LyricsOrigin = Literal["lrclib", "whisper", "manual", "none"]
 
 
 @dataclass
@@ -42,7 +44,7 @@ class SongMeta:
     pitch_tracker: str
     language: str | None = None
     language_user: bool = False
-    lyrics_source: Literal["lrclib", "whisper", "none"] | None = None
+    lyrics_source: LyricsOrigin | None = None
     # Da dove chi gioca vuole il testo; "auto" lascia decidere al confronto con la voce.
     lyrics_choice: LyricsChoice = "auto"
     # Che cosa c'è da sapere sull'ultima ricerca del testo (per esempio perché LRCLIB è stato scartato).

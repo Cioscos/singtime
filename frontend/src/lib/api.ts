@@ -1,5 +1,5 @@
 import type {
-  Difficulty, LyricLine, Note, NoteParams, PitchData, ScoreRecord, Settings, Song, Stage, SystemInfo,
+  Difficulty, LyricLine, Note, NoteParams, PitchData, ScoreRecord, Settings, Song, Stage, SystemInfo, Waveform,
 } from "./types";
 
 export class ApiError extends Error {
@@ -60,15 +60,18 @@ export const getSwiftF0Notes = async (id: string) =>
   (await request<{ notes: Note[] }>(`${song(id)}/notes-swiftf0`)).notes;
 export const getLyrics = async (id: string) => (await request<{ lines: LyricLine[] }>(`${song(id)}/lyrics`)).lines;
 export const getPitch = (id: string) => request<PitchData>(`${song(id)}/pitch`);
-export const putLyrics = async (id: string, texts: string[]) =>
-  (await request<{ lines: LyricLine[] }>(`${song(id)}/lyrics`, json("PUT", { texts }))).lines;
+/** Salva testo e tempi; lo spostamento globale del testo torna a zero, perché i tempi lo contengono già. */
+export const putLyrics = async (id: string, lines: LyricLine[]) =>
+  (await request<{ lines: LyricLine[] }>(`${song(id)}/lyrics`, json("PUT", { lines }))).lines;
+export const getWaveform = (id: string) => request<Waveform>(`${song(id)}/waveform`);
 export const previewNotes = async (id: string, params: NoteParams) =>
   (await request<{ notes: Note[] }>(`${song(id)}/notes/preview`, json("POST", params))).notes;
 
 export const applyNotes = async (id: string, params: NoteParams) =>
   (await request<{ notes: Note[] }>(`${song(id)}/notes/apply`, json("POST", params))).notes;
 
-export const audioUrl = (id: string, which: "vocals" | "instrumental") => `${song(id)}/audio/${which}`;
+export type AudioTrack = "vocals" | "instrumental" | "source";
+export const audioUrl = (id: string, which: AudioTrack) => `${song(id)}/audio/${which}`;
 
 export interface ScoreBody {
   difficulty: Difficulty;

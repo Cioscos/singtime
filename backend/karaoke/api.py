@@ -15,19 +15,20 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import config
+from . import config, waveform
 from .fileio import read_json, write_json
 from .jobs import JobQueue
 from .library import (
-    INSTRUMENTAL, LYRICS, NOTES, NOTES_SWIFTF0, PITCH, VOCALS, Library, SongNotFound,
+    INSTRUMENTAL, LYRICS, NOTES, NOTES_SWIFTF0, PITCH, SOURCE, VOCALS, WAVEFORM, Library, SongNotFound,
     lines_to_dict, notes_to_dict,
 )
-from .models import STAGES, LyricsChoice, SongMeta
+from .models import STAGES, LyricLine, LyricsChoice, SongMeta, Word
 from .pipeline import acquire, separate
 from .pipeline.notes import NoteParams, load_note_params, save_note_params, segment_notes
 
 SETTINGS_FILE = "settings.json"
-AUDIO_FILES = {"vocals": VOCALS, "instrumental": INSTRUMENTAL}
+AUDIO_FILES = {"vocals": VOCALS, "instrumental": INSTRUMENTAL, "source": SOURCE}
+BUSY = "Il brano è in elaborazione: attendi che finisca."
 NO_CACHE = {"Cache-Control": "no-store"}
 # Il server serve solo questa macchina: si accettano richieste rivolte a questi
 # nomi e provenienti da pagine servite da questi nomi (qualunque porta).
@@ -58,8 +59,43 @@ class RetryBody(BaseModel):
     from_stage: str | None = None
 
 
+class WordBody(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    text: str
+
+
+class LineBody(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    text: str
+    words: list[WordBody] | None = None
+
+
 class LyricsBody(BaseModel):
-    texts: list[str]
+    lines: list[LineBody]
+
+
+def _edited_lines(body: LyricsBody) -> list[LyricLine]:
+    """Le righe scritte a mano, controllate; solleva ValueError con il motivo se non reggono."""
+    lines: list[LyricLine] = []
+    for number, raw in enumerate(body.lines, start=1):
+        text = " ".join(raw.text.split())
+        if not text:
+            raise ValueError(f"La riga {number} è vuota")
+        if raw.end < raw.start:
+            raise ValueError(f"La riga {number} finisce prima di cominciare")
+        if lines and raw.start < lines[-1].start:
+            raise ValueError(f"La riga {number} comincia prima della precedente")
+        words = None
+        if raw.words:
+            words = [Word(round(w.start, 3), round(w.end, 3), w.text.strip()) for w in raw.words]
+            broken = any(not w.text or w.end < w.start for w in words) or any(
+                later.start < earlier.start for earlier, later in zip(words, words[1:]))
+            if broken:
+                raise ValueError(f"I tempi delle parole della riga {number} non sono in ordine")
+        lines.append(LyricLine(round(raw.start, 3), round(raw.end, 3), text, words))
+    return lines
 
 
 class ScoreBody(BaseModel):
@@ -231,7 +267,7 @@ def create_app(library: Library, jobs: JobQueue,
     def delete_song(song_id: str) -> Response:
         library.get(song_id)
         if jobs.position(song_id) is not None:
-            raise HTTPException(409, "Il brano è in elaborazione: attendi che finisca.")
+            raise HTTPException(409, BUSY)
         library.delete(song_id)
         return Response(status_code=204)
 
@@ -265,19 +301,40 @@ def create_app(library: Library, jobs: JobQueue,
 
     @app.put("/api/songs/{song_id}/lyrics")
     def put_lyrics(song_id: str, body: LyricsBody) -> dict[str, Any]:
-        library.get(song_id)
-        if not library.path(song_id, LYRICS).is_file():
+        """Salva testo e tempi così come li ha sistemati chi gioca."""
+        meta = library.get(song_id)
+        if not meta.playable:
             raise HTTPException(404, "Non ancora disponibile")
-        lines = library.read_lyrics(song_id)
-        if len(body.texts) != len(lines):
-            raise HTTPException(400, "Il numero di righe non coincide")
-        for line, text in zip(lines, body.texts):
-            text = text.strip()
-            if text != line.text:
-                line.text = text
-                line.words = None  # i tempi delle parole non valgono più per il testo nuovo
+        if jobs.position(song_id) is not None:
+            raise HTTPException(409, BUSY)   # la ricerca del testo sta per riscrivere le righe
+        try:
+            lines = _edited_lines(body)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         library.write_lyrics(song_id, lines)
+        # I tempi arrivano già spostati: lo scostamento globale non serve più.
+        changes: dict[str, Any] = {"lyrics_offset_s": 0.0}
+        if not lines:
+            changes["lyrics_source"] = "none"
+        elif meta.lyrics_source in (None, "none"):
+            changes["lyrics_source"] = "manual"
+        library.update(song_id, **changes)
+        if lines and meta.stages["lyrics"].status != "done":
+            # Un testo scritto a mano chiude una ricerca fallita: non c'è più niente da riprovare.
+            library.set_stage(song_id, "lyrics", "done")
         return lines_to_dict(lines)
+
+    @app.get("/api/songs/{song_id}/waveform")
+    def get_waveform(song_id: str) -> FileResponse:
+        """Il profilo di volume della voce isolata; si calcola alla prima richiesta."""
+        library.get(song_id)
+        vocals = library.path(song_id, VOCALS)
+        if not vocals.is_file():
+            raise HTTPException(404, "Non ancora disponibile")
+        cache = library.path(song_id, WAVEFORM)
+        if not cache.is_file() or cache.stat().st_mtime < vocals.stat().st_mtime:
+            write_json(cache, waveform.peaks(vocals))
+        return FileResponse(cache, media_type="application/json", headers=NO_CACHE)
 
     @app.post("/api/songs/{song_id}/notes/preview")
     def preview_notes(song_id: str, body: NoteParamsBody) -> dict[str, Any]:
